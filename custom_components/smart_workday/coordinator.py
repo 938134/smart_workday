@@ -291,7 +291,7 @@ class SmartWorkdayCoordinator(DataUpdateCoordinator):
             day_info = self.data_manager.analyze_day(today, events)
 
             # 获取未来事件
-            upcoming = self.data_manager.get_upcoming_days(today, data)
+            upcoming = self.data_manager.get_upcoming_days(today, days=7, data=data)
 
             return {
                 "date": day_info.date,
