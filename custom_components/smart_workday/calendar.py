@@ -50,7 +50,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_icon = CALENDAR_ICONS[cal_type]
         self._attr_device_info = device_info
         self._attr_supported_features = (
-            CalendarEntityFeature.CREATE | CalendarEntityFeature.DELETE
+            CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
         )
         self._event_list: List[CalendarEvent] = []
 
@@ -222,7 +222,7 @@ async def async_setup_entry(
         name=entry.data.get("name", "智能工作日"),
         manufacturer="Smart Workday",
         model="工作日传感器",
-        sw_version="2.3.0",
+        sw_version="2.4.0",
     )
 
     calendars = [
