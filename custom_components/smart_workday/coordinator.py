@@ -1,4 +1,15 @@
-"""Coordinator for Smart Workday - 共享数据管理（Store 持久化 + 3 态判定）"""
+"""Coordinator for Smart Workday - 共享数据管理（Store 持久化 + 日期分析）。
+
+判定逻辑（v2.6.0，简化）：
+- is_holiday         = 法定节假日(非调休)                       只算法定，自定义不算
+- is_special_workday = 调休上班日
+- is_workday         = is_special_workday OR (非自然周末 AND 非 is_holiday)
+- is_weekend         = 自然周末 AND 非 is_special_workday        可与 is_holiday 并列 True
+- is_student_holiday = 学生假期（独立 boolean，不影响工作日）
+- is_custom_holiday  = 自定义假期（独立 boolean，不影响工作日）
+
+即：以「双休 + 法定」为基准；学生假期和自定义假期是独立的标志位。
+"""
 
 import logging
 import uuid
@@ -13,12 +24,12 @@ from homeassistant.util import dt
 
 from .const import (
     DOMAIN,
-    HolidayMode,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
     ATTR_IS_SPECIAL_WORKDAY,
     ATTR_IS_STUDENT_HOLIDAY,
+    ATTR_IS_CUSTOM_HOLIDAY,
     CONF_ENABLED_LEGAL,
     CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
@@ -41,8 +52,7 @@ class DayInfo:
     is_weekend: bool
     is_special_workday: bool
     is_student_holiday: bool
-    mode: HolidayMode
-    mode_name: str
+    is_custom_holiday: bool
     events: List[Dict] = field(default_factory=list)
     event_names: List[str] = field(default_factory=list)
     primary_event: str = ""
@@ -57,15 +67,11 @@ class SmartWorkdayDataManager:
         self._store = store
         self._data_cache: Optional[Dict] = None
         self._last_loaded = None
-        self._holiday_mode = HolidayMode.STANDARD
         self._enabled_flags: Dict[str, bool] = {
             CONF_ENABLED_LEGAL: True,
             CONF_ENABLED_STUDENT: True,
             CONF_ENABLED_CUSTOM: True,
         }
-
-    def update_holiday_mode(self, mode: HolidayMode):
-        self._holiday_mode = mode
 
     def update_enabled_flags(self, entry_data: Dict[str, Any]):
         """从 entry.data 更新顶层启用开关（向后兼容：未设置默认 True）"""
@@ -216,11 +222,12 @@ class SmartWorkdayDataManager:
         return events
 
     def analyze_day(self, today: date, events: List[Dict]) -> DayInfo:
-        """分析一天的状态 - 用户规则（v2.5.0）：
+        """分析一天的状态 - v2.6.0 简化规则：
 
-        - is_workday = True ⟺ 调休上班 OR (非自然周末 AND 非节假日)
-        - 节假日 = 法定节假日(非调休) OR 自定义假期
-        - 学生假期独立，不影响工作日判定
+        - 以「双休 + 法定节假日」为主：工作日/节假日/周末由这三个决定
+        - 学生假期、自定义假期为独立 boolean 标志位，不影响工作日判定
+        - 调休上班日（special）优先级最高：即使周末也算工作日
+        - 法定节假日 + 周六同天：is_holiday=True 且 is_weekend=True（并列）
         """
         flags = {"holiday": False, "special": False, "custom": False, "student": False}
         event_names = []
@@ -239,17 +246,21 @@ class SmartWorkdayDataManager:
         # 自然周末（周六/周日）
         natural_weekend = today.weekday() >= 5
 
-        # 节假日 = 法定节假日(非调休) OR 自定义假期
-        is_holiday = flags["holiday"] or flags["custom"]
+        # 节假日：只算法定节假日（非调休）；自定义假期不影响这里
+        is_holiday = flags["holiday"]
 
         # 调休上班日优先级最高：即使周末也算工作日
         is_special_workday = flags["special"]
 
-        # 工作日 = 调休上班 OR (非自然周末 AND 非节假日)
+        # 工作日 = 调休上班 OR (非自然周末 AND 非法定节假日)
         is_workday = is_special_workday or (not natural_weekend and not is_holiday)
 
-        # 双休日 = 自然周末 且 非调休上班
+        # 双休日 = 自然周末 且 非调休上班（可与 is_holiday 并列）
         is_weekend = natural_weekend and not is_special_workday
+
+        # 学生假期 / 自定义假期：独立标志位
+        is_student_holiday = flags["student"]
+        is_custom_holiday = flags["custom"]
 
         return DayInfo(
             date=today.isoformat(),
@@ -259,9 +270,8 @@ class SmartWorkdayDataManager:
             is_holiday=is_holiday,
             is_weekend=is_weekend,
             is_special_workday=is_special_workday,
-            is_student_holiday=flags["student"],
-            mode=self._holiday_mode,
-            mode_name=self._holiday_mode.display_name,
+            is_student_holiday=is_student_holiday,
+            is_custom_holiday=is_custom_holiday,
             events=events,
             event_names=list(dict.fromkeys(event_names)),
             primary_event=event_names[0] if event_names else "",
@@ -327,8 +337,7 @@ class SmartWorkdayCoordinator(DataUpdateCoordinator):
                 ATTR_IS_WEEKEND: day_info.is_weekend,
                 ATTR_IS_SPECIAL_WORKDAY: day_info.is_special_workday,
                 ATTR_IS_STUDENT_HOLIDAY: day_info.is_student_holiday,
-                "mode": day_info.mode.value,
-                "mode_name": day_info.mode_name,
+                ATTR_IS_CUSTOM_HOLIDAY: day_info.is_custom_holiday,
                 "events": day_info.events,
                 "event_names": day_info.event_names,
                 "primary_event": day_info.primary_event,

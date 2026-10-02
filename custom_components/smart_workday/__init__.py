@@ -8,7 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
-    DOMAIN, HolidayMode,
+    DOMAIN,
     CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM,
 )
 from .coordinator import (
@@ -57,12 +57,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """设置配置条目"""
     _LOGGER.debug("设置 Smart Workday: %s", entry.entry_id)
 
-    # 确保模式和顶层开关存在（向后兼容：旧版 entry.data 缺字段默认全部启用）
+    # 确保顶层开关存在（向后兼容：旧版 entry.data 缺字段默认全部启用）
     new_data = dict(entry.data)
     changed = False
-    if "holiday_mode" not in new_data:
-        new_data["holiday_mode"] = HolidayMode.STANDARD.value
-        changed = True
     for key in (CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM):
         if key not in new_data:
             new_data[key] = True
@@ -78,9 +75,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 初始化数据管理器
     data_manager = SmartWorkdayDataManager(hass, store)
-    data_manager.update_holiday_mode(
-        HolidayMode(new_data.get("holiday_mode", HolidayMode.STANDARD.value))
-    )
     data_manager.update_enabled_flags(new_data)
 
     # 初始化协调器

@@ -1,52 +1,27 @@
-"""Constants for Smart Workday."""
+"""Constants for Smart Workday.
+
+版本号统一在此维护：所有 Python 模块通过 `from .const import VERSION` 引用，
+manifest.json 需同步更新（两处版本号必须一致，HA 会分别用于 UI 显示和实体元数据）。
+"""
 
 from enum import Enum
 from typing import Any, Final, Dict, List
+
+# ============================================================
+# 版本号（唯一权威来源，其它 Python 模块必须从此引用）
+# ============================================================
+VERSION: Final = "2.6.0"
 
 DOMAIN: Final = "smart_workday"
 DEFAULT_NAME: Final = "智能工作日"
 
 
-class HolidayMode(str, Enum):
-    """假期模式（顶层开关：法定/自定义是否算放假）"""
-    STANDARD = "standard"  # 标准模式：法定节假日 + 自定义
-    CUSTOM = "custom"      # 自由模式：仅自定义
-
-    @property
-    def display_name(self) -> str:
-        return _MODE_NAMES[self]
-
-    @property
-    def description(self) -> str:
-        return _MODE_DESCRIPTIONS[self]
-
-    @property
-    def icon(self) -> str:
-        return _MODE_ICONS[self]
-
-
-# 模式名称/描述/图标映射
-_MODE_NAMES: Dict[HolidayMode, str] = {
-    HolidayMode.STANDARD: "标准模式",
-    HolidayMode.CUSTOM: "自由模式",
-}
-
-_MODE_DESCRIPTIONS: Dict[HolidayMode, str] = {
-    HolidayMode.STANDARD: "法定节假日 + 自定义假期都算放假",
-    HolidayMode.CUSTOM: "只有自定义假期算放假，法定仅参考",
-}
-
-_MODE_ICONS: Dict[HolidayMode, str] = {
-    HolidayMode.STANDARD: "📅",
-    HolidayMode.CUSTOM: "🌟",
-}
-
-
-# ---------- 顶层启用开关（entry.data 键名） ----------
+# ============================================================
+# 顶层启用开关（entry.data 键名）
+# ============================================================
 CONF_ENABLED_LEGAL: Final = "enabled_legal"
 CONF_ENABLED_STUDENT: Final = "enabled_student"
 CONF_ENABLED_CUSTOM: Final = "enabled_custom"
-CONF_HOLIDAY_MODE: Final = "holiday_mode"
 CONF_NAME: Final = "name"
 
 # 三个总开关 → 数据分类键
@@ -64,15 +39,20 @@ ENABLED_LABELS: Final = {
 }
 
 
-# ---------- 属性常量（供二进制传感器属性读取） ----------
+# ============================================================
+# 属性常量（供二进制传感器属性读取）
+# ============================================================
 ATTR_IS_WORKDAY: Final = "is_workday"
 ATTR_IS_HOLIDAY: Final = "is_holiday"
 ATTR_IS_WEEKEND: Final = "is_weekend"
 ATTR_IS_SPECIAL_WORKDAY: Final = "is_special_workday"
 ATTR_IS_STUDENT_HOLIDAY: Final = "is_student_holiday"
+ATTR_IS_CUSTOM_HOLIDAY: Final = "is_custom_holiday"
 
 
-# ---------- 日历事件类型标记（description 前缀，用于单日历 UI 区分来源） ----------
+# ============================================================
+# 日历事件类型标记（description 前缀，用于单日历 UI 区分来源）
+# ============================================================
 EVENT_SOURCE_LEGAL: Final = "📅 法定节假日"
 EVENT_SOURCE_STUDENT: Final = "🎓 学生假期"
 EVENT_SOURCE_CUSTOM: Final = "⭐ 自定义假期"
@@ -87,7 +67,9 @@ SOURCE_TO_CATEGORY: Final = {
 }
 
 
-# ---------- 学生假期类型（5 项固定类型） ----------
+# ============================================================
+# 学生假期类型（5 项固定类型）
+# ============================================================
 class StudentHolidayType(str, Enum):
     """学生假期类型 - UI 上 5 个 checkbox 对应"""
     WINTER = "winter"      # 寒假
@@ -124,7 +106,9 @@ STUDENT_HOLIDAY_DEFAULTS: Dict[StudentHolidayType, Dict[str, Any]] = {
 }
 
 
-# ---------- 预置法定节假日数据（2026 年国务院通知） ----------
+# ============================================================
+# 预置法定节假日数据（2026 年国务院通知）
+# ============================================================
 LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
     2026: [
         {"name": "元旦", "date": "2026-01-01"},
@@ -167,7 +151,9 @@ LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
 }
 
 
-# ---------- 二进制传感器配置（3 个独立 boolean 实体） ----------
+# ============================================================
+# 二进制传感器配置（4 个独立 boolean 实体）
+# ============================================================
 BINARY_SENSOR_TYPES: Dict[str, Dict[str, Any]] = {
     ATTR_IS_WORKDAY: {
         "name": "工作日",
@@ -176,13 +162,18 @@ BINARY_SENSOR_TYPES: Dict[str, Dict[str, Any]] = {
         "info": True,  # 承载详细信息属性
     },
     ATTR_IS_HOLIDAY: {
-        "name": "节假日",
+        "name": "法定节假日",
         "icon": "mdi:calendar-star",
         "device_class": None,
     },
     ATTR_IS_STUDENT_HOLIDAY: {
         "name": "学生假期",
         "icon": "mdi:school",
+        "device_class": None,
+    },
+    ATTR_IS_CUSTOM_HOLIDAY: {
+        "name": "自定义假期",
+        "icon": "mdi:star-circle",
         "device_class": None,
     },
 }

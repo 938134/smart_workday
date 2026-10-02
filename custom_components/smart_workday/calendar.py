@@ -18,6 +18,7 @@ from homeassistant.util import dt
 
 from .const import (
     DOMAIN,
+    VERSION,
     EVENT_SOURCE_LEGAL,
     EVENT_SOURCE_STUDENT,
     EVENT_SOURCE_CUSTOM,
@@ -27,8 +28,6 @@ from .const import (
 from .coordinator import SmartWorkdayCoordinator
 
 _LOGGER = logging.getLogger(__name__)
-
-SW_VERSION = "2.5.0"
 
 
 class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
@@ -45,7 +44,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_unique_id = f"{coordinator.entry_id}_calendar"
         self._attr_name = "假期日历"
         self._attr_device_info = device_info
-        self._attr_sw_version = SW_VERSION
+        self._attr_sw_version = VERSION
         self._event_list: List[CalendarEvent] = []
 
     @property
@@ -257,7 +256,7 @@ async def async_setup_entry(
         name=entry.data.get("name", "智能工作日"),
         manufacturer="Smart Workday",
         model="假期日历",
-        sw_version=SW_VERSION,
+        sw_version=VERSION,
     )
 
     async_add_entities([SmartWorkdayCalendar(coordinator, device_info)])

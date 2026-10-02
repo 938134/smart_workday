@@ -1,11 +1,12 @@
-"""Binary Sensor platform for Smart Workday - 3 个独立 boolean 实体.
+"""Binary Sensor platform for Smart Workday - 4 个独立 boolean 实体.
 
-is_workday       : 是否工作日（含调休上班）
-is_holiday       : 是否节假日（含法定/自定义）
-is_student_holiday: 是否学生假期
+is_workday         : 是否工作日（含调休上班）
+is_holiday         : 是否法定节假日（不含自定义，不含调休上班）
+is_student_holiday : 是否学生假期（独立标志位，不影响工作日）
+is_custom_holiday  : 是否自定义假期（独立标志位，不影响工作日）
 
-详细信息（日期、星期、模式、是否双休、是否调休、事件列表、未来事件）
-统一挂在 is_workday 实体的属性里，其他两个实体保持纯粹。
+详细信息（日期、星期、是否双休、是否调休、事件列表、未来事件）
+统一挂在 is_workday 实体的属性里，其他三个实体保持纯粹。
 """
 
 import logging
@@ -20,11 +21,13 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
+    VERSION,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
     ATTR_IS_SPECIAL_WORKDAY,
     ATTR_IS_STUDENT_HOLIDAY,
+    ATTR_IS_CUSTOM_HOLIDAY,
     BINARY_SENSOR_TYPES,
 )
 from .coordinator import SmartWorkdayCoordinator
@@ -36,7 +39,7 @@ class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """独立 boolean 二进制传感器
 
     - is_workday 实体承载详细信息属性（info=True）
-    - is_holiday / is_student_holiday 保持纯粹（只有 on/off）
+    - is_holiday / is_student_holiday / is_custom_holiday 保持纯粹（只有 on/off）
     """
 
     _attr_has_entity_name = True
@@ -72,14 +75,13 @@ class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
             # 日期与星期
             "date": data.get("date", ""),
             "weekday": data.get("weekday_name", ""),
-            # 假期模式
-            "mode": data.get("mode_name", ""),
             # 布尔标志（自动化用）
             ATTR_IS_WORKDAY: data.get(ATTR_IS_WORKDAY, False),
             ATTR_IS_HOLIDAY: data.get(ATTR_IS_HOLIDAY, False),
             ATTR_IS_WEEKEND: data.get(ATTR_IS_WEEKEND, False),
             ATTR_IS_SPECIAL_WORKDAY: data.get(ATTR_IS_SPECIAL_WORKDAY, False),
             ATTR_IS_STUDENT_HOLIDAY: data.get(ATTR_IS_STUDENT_HOLIDAY, False),
+            ATTR_IS_CUSTOM_HOLIDAY: data.get(ATTR_IS_CUSTOM_HOLIDAY, False),
             # 今日事件
             "holiday_name": data.get("primary_event", ""),
             "events": data.get("event_names", []),
@@ -93,7 +95,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置 3 个 boolean 二进制传感器"""
+    """设置 4 个 boolean 二进制传感器"""
     _LOGGER.debug("设置二进制传感器: %s", entry.entry_id)
 
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
@@ -103,7 +105,7 @@ async def async_setup_entry(
         name=entry.data.get("name", "智能工作日"),
         manufacturer="Smart Workday",
         model="工作日传感器",
-        sw_version="2.5.0",
+        sw_version=VERSION,
     )
 
     entities = [

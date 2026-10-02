@@ -1,7 +1,7 @@
 """Config flow for Smart Workday - 两步式 UI 表单。
 
 ConfigFlow 与 OptionsFlow 使用同一套步骤逻辑（共享基类 BaseWorkdayFlow）：
-- 第 1 步 (init)：名称(ConfigFlow 独有) + 假期模式 + 3 个顶层启用开关
+- 第 1 步 (init)：名称(ConfigFlow 独有) + 3 个顶层启用开关
 - 第 2 步 (route)：根据开关状态自动路由到对应分类编辑页
 - 各分类编辑页：法定节假日 / 学生假期 / 自定义假期
 - 高级 JSON 编辑：兜底（在路由页可选）
@@ -24,14 +24,12 @@ from homeassistant.helpers.storage import Store
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
-    HolidayMode,
     LEGAL_HOLIDAY_PRESETS,
     STUDENT_HOLIDAY_DEFAULTS,
     StudentHolidayType,
     CONF_ENABLED_LEGAL,
     CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
-    CONF_HOLIDAY_MODE,
     CONF_NAME,
     ENABLED_LABELS,
     EVENT_SOURCE_LEGAL,
@@ -48,16 +46,6 @@ _LOGGER = logging.getLogger(__name__)
 # ============================================================
 # 辅助函数：构建选项 / 格式化文本
 # ============================================================
-
-def _build_mode_options() -> List[selector.SelectOptionDict]:
-    return [
-        selector.SelectOptionDict(
-            value=mode.value,
-            label=f"{mode.icon} {mode.display_name} - {mode.description}",
-        )
-        for mode in HolidayMode
-    ]
-
 
 def _build_route_actions(enabled_legal: bool, enabled_student: bool,
                           enabled_custom: bool) -> List[selector.SelectOptionDict]:
@@ -176,7 +164,7 @@ class BaseWorkdayFlow:
 
     ⚠️ 不共享入口步骤：HA ConfigFlow 入口是 async_step_user，
     OptionsFlow 入口才是 async_step_init，二者无法复用。
-    ConfigFlow 只做「名称 + 模式 + 开关」后 create_entry，
+    ConfigFlow 只做「名称 + 3 开关」后 create_entry，
     HA 自动跳到 OptionsFlow 的第二步继续。
     """
 
@@ -232,13 +220,12 @@ class BaseWorkdayFlow:
         )
 
     def _get_flags(self) -> Dict[str, Any]:
-        """读取当前 entry.data 中的开关和模式"""
+        """读取当前 entry.data 中的开关"""
         d = self.config_entry.data
         return {
             CONF_ENABLED_LEGAL: bool(d.get(CONF_ENABLED_LEGAL, True)),
             CONF_ENABLED_STUDENT: bool(d.get(CONF_ENABLED_STUDENT, True)),
             CONF_ENABLED_CUSTOM: bool(d.get(CONF_ENABLED_CUSTOM, True)),
-            CONF_HOLIDAY_MODE: d.get(CONF_HOLIDAY_MODE, HolidayMode.STANDARD.value),
         }
 
     # ================================================================
@@ -752,7 +739,7 @@ class BaseWorkdayFlow:
 # ============================================================
 
 class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Smart Workday 配置流 - 首次添加时只填基础信息，
+    """Smart Workday 配置流 - 首次添加时只填名称 + 3 个启用开关，
     HA 会自动跳到 OptionsFlow 继续详细配置。
     """
 
@@ -769,14 +756,13 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """第 1 步（也是唯一一步）：名称 + 模式 + 3 个启用开关"""
+        """第 1 步（也是唯一一步）：名称 + 3 个启用开关"""
         errors: Dict[str, str] = {}
 
         if user_input is not None:
             name = (user_input.get(CONF_NAME) or DEFAULT_NAME).strip() or DEFAULT_NAME
             data = {
                 CONF_NAME: name,
-                CONF_HOLIDAY_MODE: user_input[CONF_HOLIDAY_MODE],
                 CONF_ENABLED_LEGAL: bool(user_input[CONF_ENABLED_LEGAL]),
                 CONF_ENABLED_STUDENT: bool(user_input[CONF_ENABLED_STUDENT]),
                 CONF_ENABLED_CUSTOM: bool(user_input[CONF_ENABLED_CUSTOM]),
@@ -787,9 +773,6 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
-                vol.Required(CONF_HOLIDAY_MODE, default=HolidayMode.STANDARD.value): selector.SelectSelector(
-                    selector.SelectSelectorConfig(options=_build_mode_options(), mode="dropdown")
-                ),
                 vol.Required(CONF_ENABLED_LEGAL, default=True): selector.BooleanSelector(),
                 vol.Required(CONF_ENABLED_STUDENT, default=True): selector.BooleanSelector(),
                 vol.Required(CONF_ENABLED_CUSTOM, default=True): selector.BooleanSelector(),
@@ -797,7 +780,7 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
             description_placeholders={
                 "tips": (
-                    "⚙️ 输入集成名称、选择模式、勾选启用的假期类型。\n"
+                    "⚙️ 输入集成名称、勾选要启用的假期类型。\n"
                     "💡 提交后会跳到第 2 步继续详细配置。"
                 ),
             },
@@ -811,7 +794,7 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
 class SmartWorkdayOptionsFlow(BaseWorkdayFlow, OptionsFlowWithReload):
     """Smart Workday 选项流 - 两步式 UI 表单
 
-    - 第 1 步 (init)：3 个启用开关 + 假期模式
+    - 第 1 步 (init)：3 个启用开关
     - 第 2 步 (route)：根据启用了哪一类路由到编辑页
 
     继承 OptionsFlowWithReload：async_create_entry 自动 reload entry。
@@ -822,14 +805,13 @@ class SmartWorkdayOptionsFlow(BaseWorkdayFlow, OptionsFlowWithReload):
     async def async_step_init(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """第 1 步：模式 + 3 个启用开关"""
+        """第 1 步：3 个启用开关"""
         if user_input is not None:
             # 保存开关到 entry.data
             flags = {
                 CONF_ENABLED_LEGAL: bool(user_input[CONF_ENABLED_LEGAL]),
                 CONF_ENABLED_STUDENT: bool(user_input[CONF_ENABLED_STUDENT]),
                 CONF_ENABLED_CUSTOM: bool(user_input[CONF_ENABLED_CUSTOM]),
-                CONF_HOLIDAY_MODE: user_input[CONF_HOLIDAY_MODE],
             }
             self._update_entry_flags(flags)
             # 自动进入第 2 步
@@ -837,9 +819,6 @@ class SmartWorkdayOptionsFlow(BaseWorkdayFlow, OptionsFlowWithReload):
 
         current = self._get_flags()
         schema = vol.Schema({
-            vol.Required(CONF_HOLIDAY_MODE, default=current[CONF_HOLIDAY_MODE]): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=_build_mode_options(), mode="dropdown")
-            ),
             vol.Required(CONF_ENABLED_LEGAL, default=current[CONF_ENABLED_LEGAL]): selector.BooleanSelector(),
             vol.Required(CONF_ENABLED_STUDENT, default=current[CONF_ENABLED_STUDENT]): selector.BooleanSelector(),
             vol.Required(CONF_ENABLED_CUSTOM, default=current[CONF_ENABLED_CUSTOM]): selector.BooleanSelector(),
@@ -852,17 +831,14 @@ class SmartWorkdayOptionsFlow(BaseWorkdayFlow, OptionsFlowWithReload):
         )
 
     def _build_init_tips(self, flags: Dict[str, Any]) -> str:
-        mode_obj = next(
-            (m for m in HolidayMode if m.value == flags[CONF_HOLIDAY_MODE]),
-            HolidayMode.STANDARD,
-        )
         return (
             f"⚙️ **当前配置**\n"
-            f"  • 模式：{mode_obj.display_name}\n"
             f"  • 📅 法定节假日：{'✅ 启用' if flags[CONF_ENABLED_LEGAL] else '❌ 禁用'}\n"
             f"  • 🎓 学生假期：{'✅ 启用' if flags[CONF_ENABLED_STUDENT] else '❌ 禁用'}\n"
             f"  • ⭐ 自定义假期：{'✅ 启用' if flags[CONF_ENABLED_CUSTOM] else '❌ 禁用'}\n"
-            f"\n💡 禁用某类假期后，该类数据不再显示也不参与工作日/节假日判定。"
+            f"\n💡 判定逻辑：以「双休 + 法定节假日」为工作日基准；"
+            f"学生假期与自定义假期为独立标志位，不影响工作日判定。"
+            f"禁用某类假期后，该类数据不再显示也不参与判定。"
         )
 
     @override

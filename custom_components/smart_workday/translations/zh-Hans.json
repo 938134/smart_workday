@@ -9,7 +9,6 @@
                 "description": "{tips}",
                 "data": {
                     "name": "集成名称",
-                    "holiday_mode": "假期模式",
                     "enabled_legal": "📅 启用法定节假日",
                     "enabled_student": "🎓 启用学生假期",
                     "enabled_custom": "⭐ 启用自定义假期"
@@ -140,7 +139,6 @@
                 "title": "智能工作日配置（第 1 步）",
                 "description": "{tips}",
                 "data": {
-                    "holiday_mode": "假期模式",
                     "enabled_legal": "📅 启用法定节假日",
                     "enabled_student": "🎓 启用学生假期",
                     "enabled_custom": "⭐ 启用自定义假期"
@@ -269,20 +267,5 @@
                 }
             }
         }
-    },
-
-    "mode_names": {
-        "standard": "标准模式",
-        "custom": "自由模式"
-    },
-
-    "mode_icons": {
-        "standard": "📅",
-        "custom": "🌟"
-    },
-
-    "mode_descriptions": {
-        "standard": "法定节假日 + 自定义假期都算放假",
-        "custom": "只有自定义假期算放假，法定仅参考"
     }
 }

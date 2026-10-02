@@ -9,7 +9,6 @@
                 "description": "{tips}",
                 "data": {
                     "name": "Integration Name",
-                    "holiday_mode": "Holiday Mode",
                     "enabled_legal": "📅 Enable National Holidays",
                     "enabled_student": "🎓 Enable Student Holidays",
                     "enabled_custom": "⭐ Enable Custom Holidays"
@@ -122,7 +121,6 @@
                 "title": "Smart Workday Options (Step 1)",
                 "description": "{tips}",
                 "data": {
-                    "holiday_mode": "Holiday Mode",
                     "enabled_legal": "📅 Enable National Holidays",
                     "enabled_student": "🎓 Enable Student Holidays",
                     "enabled_custom": "⭐ Enable Custom Holidays"
@@ -231,18 +229,5 @@
                 }
             }
         }
-    },
-
-    "mode_names": {
-        "standard": "Standard Mode",
-        "custom": "Free Mode"
-    },
-    "mode_icons": {
-        "standard": "📅",
-        "custom": "🌟"
-    },
-    "mode_descriptions": {
-        "standard": "National + custom holidays both count as off",
-        "custom": "Only custom holidays count as off; national is reference only"
     }
 }
