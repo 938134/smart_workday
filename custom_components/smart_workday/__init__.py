@@ -8,8 +8,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from .const import (
-    DOMAIN, HolidayMode, HolidayType,
-    ATTR_CURRENT_TYPE, DEFAULT_HOLIDAY_TYPE,
+    DOMAIN, HolidayMode,
 )
 from .coordinator import (
     SmartWorkdayDataManager, SmartWorkdayCoordinator,
@@ -18,7 +17,7 @@ from .coordinator import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR, Platform.SELECT]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR]
 
 
 async def _migrate_yaml_to_store(hass: HomeAssistant, store: Store, entry: ConfigEntry):
@@ -86,7 +85,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
         "data_manager": data_manager,
         "store": store,
-        ATTR_CURRENT_TYPE: DEFAULT_HOLIDAY_TYPE.value,
     }
 
     # 设置平台

@@ -103,7 +103,7 @@ async def async_setup_entry(
         name=entry.data.get("name", "智能工作日"),
         manufacturer="Smart Workday",
         model="工作日传感器",
-        sw_version="2.2.0",
+        sw_version="2.3.0",
     )
 
     entities = [

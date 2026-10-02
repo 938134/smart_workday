@@ -184,7 +184,7 @@ class SmartWorkdayOptionsFlow(config_entries.OptionsFlow):
         s_count = len(self._data.get("studentdays", []))
         return (
             f"📅 **日常增删请用日历面板**（点击日期添加 / 点事件删除）\n"
-            f"  • 先在 Lovelace 的「假期类型」下拉里选好类型，再去日历点击添加\n"
+            f"  • 节假日管理请在日历面板操作（3 个日历分别对应法定/学生/自定义）\n"
             f"  • 类型选项：自定义 / 法定（含调休）/ 学生\n"
             f"📦 **当前统计**：法定 {h_count} / 自定义 {c_count} / 学生 {s_count}"
         )
