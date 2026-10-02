@@ -6,7 +6,7 @@
         "step": {
             "user": {
                 "title": "Configure Smart Workday",
-                "description": "Set integration name and holiday mode",
+                "description": "Set the integration name and holiday mode. After adding, use Options for detailed management.",
                 "data": {
                     "name": "Integration Name",
                     "holiday_mode": "Holiday Mode"
@@ -19,18 +19,125 @@
         "title": "Smart Workday Options",
         "step": {
             "init": {
-                "title": "Holiday Management",
+                "title": "Smart Workday Main Menu",
                 "description": "{stats}",
                 "data": {
-                    "holiday_mode": "Holiday Mode",
-                    "action": "Select Action"
+                    "action": "Select management entry"
+                }
+            },
+            "legal": {
+                "title": "National Holidays Management",
+                "description": "Current national holidays: **{count}** entries:\n\n{list}\n\nSelect an action:",
+                "data": {
+                    "action": "Select action"
+                }
+            },
+            "legal_import": {
+                "title": "Import National Holidays from Preset",
+                "description": "{warning}",
+                "data": {
+                    "year": "Select year",
+                    "confirm": "Confirm action"
+                },
+                "errors": {
+                    "save_failed": "❌ Save failed, please retry"
+                }
+            },
+            "legal_add": {
+                "title": "Add National Holiday",
+                "description": "Enter name and date. For makeup workdays, select '💼 Makeup Workday' in the type field.",
+                "data": {
+                    "name": "Holiday name (e.g. Spring Festival)",
+                    "date": "Date",
+                    "type": "Type"
+                },
+                "errors": {
+                    "missing_required": "❌ Name and date are required",
+                    "save_failed": "❌ Save failed"
+                }
+            },
+            "legal_delete": {
+                "title": "Delete National Holiday",
+                "description": "Select the entry to delete:",
+                "data": {
+                    "uid": "Select entry to delete"
+                }
+            },
+            "legal_clear": {
+                "title": "Clear National Holidays",
+                "description": "{warning}",
+                "data": {
+                    "confirm": "Confirm action"
+                }
+            },
+            "student": {
+                "title": "Student Holidays Management",
+                "description": "Check the enabled student holidays and set their dates. Disabled entries can have empty dates.",
+                "data": {
+                    "enable_winter": "Enable Winter Vacation",
+                    "winter_start": "Winter start date",
+                    "winter_end": "Winter end date",
+                    "enable_summer": "Enable Summer Vacation",
+                    "summer_start": "Summer start date",
+                    "summer_end": "Summer end date",
+                    "enable_spring": "Enable Spring Break",
+                    "spring_start": "Spring start date",
+                    "spring_end": "Spring end date",
+                    "enable_autumn": "Enable Autumn Break",
+                    "autumn_start": "Autumn start date",
+                    "autumn_end": "Autumn end date",
+                    "enable_children": "Enable Children's Day",
+                    "children_date": "Children's Day date"
+                },
+                "errors": {
+                    "save_failed": "❌ Save failed"
+                }
+            },
+            "custom": {
+                "title": "Custom Holidays Management",
+                "description": "Current custom holidays: **{count}** entries:\n\n{list}\n\nSelect an action:",
+                "data": {
+                    "action": "Select action"
+                }
+            },
+            "custom_add": {
+                "title": "Add Custom Holiday",
+                "description": "Enter name and date. For date range, fill in 'End date'; leave empty for a single day.",
+                "data": {
+                    "name": "Holiday name",
+                    "date": "Start date",
+                    "end": "End date (optional, empty for single day)"
+                },
+                "errors": {
+                    "missing_required": "❌ Name and start date are required",
+                    "save_failed": "❌ Save failed"
+                }
+            },
+            "custom_delete": {
+                "title": "Delete Custom Holiday",
+                "description": "Select the entry to delete:",
+                "data": {
+                    "uid": "Select entry to delete"
+                }
+            },
+            "custom_clear": {
+                "title": "Clear Custom Holidays",
+                "description": "{warning}",
+                "data": {
+                    "confirm": "Confirm action"
+                }
+            },
+            "mode": {
+                "title": "Holiday Mode Settings",
+                "description": "Select the current holiday calculation mode:",
+                "data": {
+                    "holiday_mode": "Holiday Mode"
                 }
             },
             "advanced": {
-                "title": "Advanced: Edit Data",
+                "title": "Advanced: Edit JSON",
                 "description": "{tips}",
                 "data": {
-                    "holiday_mode": "Holiday Mode",
                     "json_content": "JSON Data"
                 },
                 "errors": {
