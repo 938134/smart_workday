@@ -153,8 +153,8 @@ class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     @override
     def async_get_options_flow(config_entry: ConfigEntry):
-        """获取选项流"""
-        return SmartWorkdayOptionsFlow(config_entry)
+        """获取选项流 - HA 会在实例化后自动注入 self.config_entry"""
+        return SmartWorkdayOptionsFlow()
 
     @override
     async def async_step_user(
@@ -192,13 +192,12 @@ class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
     """选项流 - 主菜单 + 高级 JSON 编辑
 
-    继承 OptionsFlowWithReload：调用 async_create_entry 时 HA 会自动 reload entry
-    """
+    继承 OptionsFlowWithReload：调用 async_create_entry 时 HA 会自动 reload entry。
 
-    def __init__(self, config_entry: ConfigEntry):
-        """初始化选项流 - 必须调用 super().__init__() 让基类设置 self.config_entry"""
-        super().__init__(config_entry)
-        self._data: Dict[str, List] = {}
+    ⚠️ 不要覆盖 __init__：HA 的 OptionsFlowWithReload 不接受 config_entry 参数，
+    它在 OptionsFlowManager 内部会自动把 config_entry 挂到 self.config_entry 上。
+    参照 HA 官方 holiday 集成的 HolidayOptionsFlowHandler 就是这个模式。
+    """
 
     def _get_store(self) -> Store:
         """获取当前条目的 Store 实例"""
@@ -207,6 +206,12 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             STORAGE_VERSION,
             f"{DOMAIN}.{self.config_entry.entry_id}",
         )
+
+    async def _ensure_data(self) -> Dict[str, List]:
+        """惰性加载数据（HA 不会自动构造 __init__ 传入参数，所以首次进入步骤时加载）"""
+        if not getattr(self, "_data", None):
+            self._data = await self._load_data()
+        return self._data
 
     async def _load_data(self) -> Dict[str, List]:
         """从 Store 加载数据"""
@@ -255,8 +260,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> config_entries.ConfigFlowResult:
         """主菜单：显示统计 + 5 个入口"""
-        if not self._data:
-            self._data = await self._load_data()
+        await self._ensure_data()
 
         if user_input is not None:
             action = user_input.get("action")
@@ -515,8 +519,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> config_entries.ConfigFlowResult:
         """学生假期 5 项 - 一次性表单"""
-        if not self._data:
-            self._data = await self._load_data()
+        await self._ensure_data()
 
         if user_input is not None:
             new_studentdays: List[Dict[str, Any]] = []
