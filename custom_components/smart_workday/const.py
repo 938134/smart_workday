@@ -8,42 +8,59 @@ DEFAULT_NAME: Final = "智能工作日"
 
 
 class HolidayMode(str, Enum):
-    """假期模式"""
-    STANDARD = "standard"  # 标准模式：法定+自定义
+    """假期模式（顶层开关：法定/自定义是否算放假）"""
+    STANDARD = "standard"  # 标准模式：法定节假日 + 自定义
     CUSTOM = "custom"      # 自由模式：仅自定义
 
     @property
     def display_name(self) -> str:
-        """获取显示名称"""
         return _MODE_NAMES[self]
 
     @property
     def description(self) -> str:
-        """获取模式描述"""
         return _MODE_DESCRIPTIONS[self]
 
     @property
     def icon(self) -> str:
-        """获取模式图标"""
         return _MODE_ICONS[self]
 
 
-# 模式名称映射
+# 模式名称/描述/图标映射
 _MODE_NAMES: Dict[HolidayMode, str] = {
     HolidayMode.STANDARD: "标准模式",
     HolidayMode.CUSTOM: "自由模式",
 }
 
-# 模式描述映射
 _MODE_DESCRIPTIONS: Dict[HolidayMode, str] = {
-    HolidayMode.STANDARD: "法定节假日 + 自定义假期",
-    HolidayMode.CUSTOM: "只有自定义假期算放假",
+    HolidayMode.STANDARD: "法定节假日 + 自定义假期都算放假",
+    HolidayMode.CUSTOM: "只有自定义假期算放假，法定仅参考",
 }
 
-# 模式图标映射
 _MODE_ICONS: Dict[HolidayMode, str] = {
     HolidayMode.STANDARD: "📅",
     HolidayMode.CUSTOM: "🌟",
+}
+
+
+# ---------- 顶层启用开关（entry.data 键名） ----------
+CONF_ENABLED_LEGAL: Final = "enabled_legal"
+CONF_ENABLED_STUDENT: Final = "enabled_student"
+CONF_ENABLED_CUSTOM: Final = "enabled_custom"
+CONF_HOLIDAY_MODE: Final = "holiday_mode"
+CONF_NAME: Final = "name"
+
+# 三个总开关 → 数据分类键
+ENABLED_TO_CATEGORY: Final = {
+    CONF_ENABLED_LEGAL: "holidays",
+    CONF_ENABLED_STUDENT: "studentdays",
+    CONF_ENABLED_CUSTOM: "customdays",
+}
+
+# 三个总开关 → 中文标签
+ENABLED_LABELS: Final = {
+    CONF_ENABLED_LEGAL: "📅 法定节假日",
+    CONF_ENABLED_STUDENT: "🎓 学生假期",
+    CONF_ENABLED_CUSTOM: "⭐ 自定义假期",
 }
 
 
@@ -54,44 +71,30 @@ ATTR_IS_WEEKEND: Final = "is_weekend"
 ATTR_IS_SPECIAL_WORKDAY: Final = "is_special_workday"
 ATTR_IS_STUDENT_HOLIDAY: Final = "is_student_holiday"
 
-# ---------- 日历类型（3 个独立日历实体） ----------
-class CalendarType(str, Enum):
-    """日历类型 - 每个类型一个独立日历实体，事件自动归类"""
-    LEGAL = "legal"        # 法定节假日（含调休）→ holidays
-    STUDENT = "student"    # 学生假期 → studentdays
-    CUSTOM = "custom"      # 自定义假期 → customdays
 
-    @property
-    def display_name(self) -> str:
-        return _CAL_NAMES[self]
+# ---------- 日历事件类型标记（description 前缀，用于单日历 UI 区分来源） ----------
+EVENT_SOURCE_LEGAL: Final = "📅 法定节假日"
+EVENT_SOURCE_STUDENT: Final = "🎓 学生假期"
+EVENT_SOURCE_CUSTOM: Final = "⭐ 自定义假期"
+EVENT_SOURCE_MAKEUP: Final = "💼 调休上班日"
 
-    @property
-    def data_category(self) -> str:
-        """映射到数据的分类键"""
-        return _CAL_TO_CATEGORY[self]
-
-
-_CAL_NAMES: Dict[CalendarType, str] = {
-    CalendarType.LEGAL: "法定节假日",
-    CalendarType.STUDENT: "学生假期",
-    CalendarType.CUSTOM: "自定义假期",
-}
-
-_CAL_TO_CATEGORY: Dict[CalendarType, str] = {
-    CalendarType.LEGAL: "holidays",
-    CalendarType.STUDENT: "studentdays",
-    CalendarType.CUSTOM: "customdays",
+# description 前缀 → 数据分类键（用于从单日历删除事件时推断分类）
+SOURCE_TO_CATEGORY: Final = {
+    EVENT_SOURCE_LEGAL: "holidays",
+    EVENT_SOURCE_MAKEUP: "holidays",
+    EVENT_SOURCE_STUDENT: "studentdays",
+    EVENT_SOURCE_CUSTOM: "customdays",
 }
 
 
 # ---------- 学生假期类型（5 项固定类型） ----------
 class StudentHolidayType(str, Enum):
     """学生假期类型 - UI 上 5 个 checkbox 对应"""
-    WINTER = "winter"      # 寒假（1-2 月）
-    SUMMER = "summer"      # 暑假（7-8 月）
-    SPRING = "spring"      # 春假（3-5 月）
-    AUTUMN = "autumn"      # 秋假（10-11 月）
-    CHILDREN = "children"  # 儿童节（6.1）
+    WINTER = "winter"      # 寒假
+    SUMMER = "summer"      # 暑假
+    SPRING = "spring"      # 春假
+    AUTUMN = "autumn"      # 秋假
+    CHILDREN = "children"  # 儿童节
 
     @property
     def display_name(self) -> str:
@@ -122,13 +125,10 @@ STUDENT_HOLIDAY_DEFAULTS: Dict[StudentHolidayType, Dict[str, Any]] = {
 
 
 # ---------- 预置法定节假日数据（2026 年国务院通知） ----------
-# 说明：数据基于国务院办公厅 2026 年放假安排，如需修正请在 UI 上手动编辑
 LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
     2026: [
-        # 元旦（1.1-1.2）
         {"name": "元旦", "date": "2026-01-01"},
         {"name": "元旦", "date": "2026-01-02"},
-        # 春节（2.16 除夕 - 2.22 初六）+ 调休上班
         {"name": "春节调休上班", "date": "2026-02-14"},
         {"name": "春节", "date": "2026-02-16"},
         {"name": "春节", "date": "2026-02-17"},
@@ -138,26 +138,21 @@ LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
         {"name": "春节", "date": "2026-02-21"},
         {"name": "春节", "date": "2026-02-22"},
         {"name": "春节调休上班", "date": "2026-02-28"},
-        # 清明节（4.4-4.6）
         {"name": "清明节", "date": "2026-04-04"},
         {"name": "清明节", "date": "2026-04-05"},
         {"name": "清明节", "date": "2026-04-06"},
-        # 劳动节（5.1-5.5）+ 调休上班
         {"name": "劳动节", "date": "2026-05-01"},
         {"name": "劳动节", "date": "2026-05-02"},
         {"name": "劳动节", "date": "2026-05-03"},
         {"name": "劳动节", "date": "2026-05-04"},
         {"name": "劳动节", "date": "2026-05-05"},
         {"name": "劳动节调休上班", "date": "2026-05-09"},
-        # 端午节（6.19-6.21）
         {"name": "端午节", "date": "2026-06-19"},
         {"name": "端午节", "date": "2026-06-20"},
         {"name": "端午节", "date": "2026-06-21"},
-        # 中秋节（9.25-9.27）
         {"name": "中秋节", "date": "2026-09-25"},
         {"name": "中秋节", "date": "2026-09-26"},
         {"name": "中秋节", "date": "2026-09-27"},
-        # 国庆节（10.1-10.8）+ 调休上班
         {"name": "国庆节", "date": "2026-10-01"},
         {"name": "国庆节", "date": "2026-10-02"},
         {"name": "国庆节", "date": "2026-10-03"},
@@ -172,10 +167,8 @@ LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
 }
 
 
-# 二进制传感器配置 - 3 个独立 boolean 实体
-# 用户直接读取：is_workday（是否工作日）/ is_holiday（是否节假日）/ is_student_holiday（是否学生假期）
-# 详细信息（是否双休、是否调休、事件列表、日期、模式等）作为属性挂在 is_workday 上
-BINARY_SENSOR_TYPES: Dict[str, Dict[str, str]] = {
+# ---------- 二进制传感器配置（3 个独立 boolean 实体） ----------
+BINARY_SENSOR_TYPES: Dict[str, Dict[str, Any]] = {
     ATTR_IS_WORKDAY: {
         "name": "工作日",
         "icon": "mdi:briefcase-check",

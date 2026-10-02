@@ -9,6 +9,7 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     DOMAIN, HolidayMode,
+    CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM,
 )
 from .coordinator import (
     SmartWorkdayDataManager, SmartWorkdayCoordinator,
@@ -56,10 +57,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """设置配置条目"""
     _LOGGER.debug("设置 Smart Workday: %s", entry.entry_id)
 
-    # 确保模式存在
-    if "holiday_mode" not in entry.data:
-        new_data = dict(entry.data)
+    # 确保模式和顶层开关存在（向后兼容：旧版 entry.data 缺字段默认全部启用）
+    new_data = dict(entry.data)
+    changed = False
+    if "holiday_mode" not in new_data:
         new_data["holiday_mode"] = HolidayMode.STANDARD.value
+        changed = True
+    for key in (CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM):
+        if key not in new_data:
+            new_data[key] = True
+            changed = True
+    if changed:
         hass.config_entries.async_update_entry(entry, data=new_data)
 
     # 创建 Store（JSON 持久化，存放在 .storage/ 目录）
@@ -71,8 +79,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 初始化数据管理器
     data_manager = SmartWorkdayDataManager(hass, store)
     data_manager.update_holiday_mode(
-        HolidayMode(entry.data.get("holiday_mode", HolidayMode.STANDARD.value))
+        HolidayMode(new_data.get("holiday_mode", HolidayMode.STANDARD.value))
     )
+    data_manager.update_enabled_flags(new_data)
 
     # 初始化协调器
     coordinator = SmartWorkdayCoordinator(hass, entry.entry_id, data_manager)
@@ -81,7 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 存储数据
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
-        "config": entry.data,
+        "config": new_data,
         "coordinator": coordinator,
         "data_manager": data_manager,
         "store": store,

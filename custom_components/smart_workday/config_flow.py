@@ -1,39 +1,55 @@
-"""Config flow for Smart Workday.
+"""Config flow for Smart Workday - 两步式 UI 表单。
 
-参照 HA 官方 holiday 集成的模式重写：
-- 使用 OptionsFlowWithReload 自动处理 reload
-- 使用 domain=DOMAIN 关键字参数声明 domain
-- 使用 @staticmethod @callback @override 装饰链
-- OptionsFlow.__init__ 通过 super() 让基类自动设置 self.config_entry
+ConfigFlow 与 OptionsFlow 使用同一套步骤逻辑（共享基类 BaseWorkdayFlow）：
+- 第 1 步 (init)：名称(ConfigFlow 独有) + 假期模式 + 3 个顶层启用开关
+- 第 2 步 (route)：根据开关状态自动路由到对应分类编辑页
+- 各分类编辑页：法定节假日 / 学生假期 / 自定义假期
+- 高级 JSON 编辑：兜底（在路由页可选）
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import uuid
 from typing import Any, Dict, List, Optional, override
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry, OptionsFlowWithReload
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, OptionsFlowWithReload
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.storage import Store
 
-import uuid
 from .const import (
-    DOMAIN, DEFAULT_NAME, HolidayMode,
-    LEGAL_HOLIDAY_PRESETS, STUDENT_HOLIDAY_DEFAULTS, StudentHolidayType,
+    DOMAIN,
+    DEFAULT_NAME,
+    HolidayMode,
+    LEGAL_HOLIDAY_PRESETS,
+    STUDENT_HOLIDAY_DEFAULTS,
+    StudentHolidayType,
+    CONF_ENABLED_LEGAL,
+    CONF_ENABLED_STUDENT,
+    CONF_ENABLED_CUSTOM,
+    CONF_HOLIDAY_MODE,
+    CONF_NAME,
+    ENABLED_LABELS,
+    EVENT_SOURCE_LEGAL,
+    EVENT_SOURCE_STUDENT,
+    EVENT_SOURCE_CUSTOM,
+    EVENT_SOURCE_MAKEUP,
+    SOURCE_TO_CATEGORY,
 )
 from .coordinator import STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
 
-# ---------- 表单选项构建器 ----------
+# ============================================================
+# 辅助函数：构建选项 / 格式化文本
+# ============================================================
 
 def _build_mode_options() -> List[selector.SelectOptionDict]:
-    """构建假期模式选项列表"""
     return [
         selector.SelectOptionDict(
             value=mode.value,
@@ -43,49 +59,59 @@ def _build_mode_options() -> List[selector.SelectOptionDict]:
     ]
 
 
-def _build_main_menu_options() -> List[selector.SelectOptionDict]:
-    """主菜单操作选项"""
-    return [
-        selector.SelectOptionDict(value="legal", label="📅 法定节假日管理"),
-        selector.SelectOptionDict(value="student", label="🎓 学生假期管理"),
-        selector.SelectOptionDict(value="custom", label="⭐ 自定义节假日管理"),
-        selector.SelectOptionDict(value="mode", label="⚙️ 假期模式设置"),
-        selector.SelectOptionDict(value="advanced", label="📝 高级 JSON 编辑"),
-        selector.SelectOptionDict(value="back", label="↩️ 完成配置"),
-    ]
+def _build_route_actions(enabled_legal: bool, enabled_student: bool,
+                          enabled_custom: bool) -> List[selector.SelectOptionDict]:
+    """构建路由步骤的操作选项，只显示已启用的分类"""
+    options: List[selector.SelectOptionDict] = []
+    if enabled_legal:
+        options.append(selector.SelectOptionDict(
+            value="legal", label="📅 法定节假日"
+        ))
+    if enabled_student:
+        options.append(selector.SelectOptionDict(
+            value="student", label="🎓 学生假期"
+        ))
+    if enabled_custom:
+        options.append(selector.SelectOptionDict(
+            value="custom", label="⭐ 自定义假期"
+        ))
+    options.append(selector.SelectOptionDict(
+        value="advanced", label="📝 高级 JSON 编辑"
+    ))
+    options.append(selector.SelectOptionDict(
+        value="back", label="✅ 完成（返回主菜单）"
+    ))
+    return options
 
 
 def _build_legal_actions() -> List[selector.SelectOptionDict]:
-    """法定节假日操作选项"""
     return [
         selector.SelectOptionDict(value="import", label="📥 从 2026 国务院通知导入（覆盖）"),
         selector.SelectOptionDict(value="add", label="➕ 手动添加一条"),
         selector.SelectOptionDict(value="delete", label="🗑️ 删除某条"),
         selector.SelectOptionDict(value="clear", label="⚠️ 清空全部"),
-        selector.SelectOptionDict(value="back", label="⬅️ 返回主菜单"),
+        selector.SelectOptionDict(value="back", label="⬅️ 返回上一步"),
     ]
 
 
 def _build_custom_actions() -> List[selector.SelectOptionDict]:
-    """自定义节假日操作选项"""
     return [
         selector.SelectOptionDict(value="add", label="➕ 添加一条"),
         selector.SelectOptionDict(value="delete", label="🗑️ 删除某条"),
         selector.SelectOptionDict(value="clear", label="⚠️ 清空全部"),
-        selector.SelectOptionDict(value="back", label="⬅️ 返回主菜单"),
+        selector.SelectOptionDict(value="back", label="⬅️ 返回上一步"),
     ]
 
 
-def _build_confirm_options(default: str = "cancel") -> List[selector.SelectOptionDict]:
-    """确认对话框选项（默认选中取消，避免误操作）"""
+def _build_confirm_options() -> List[selector.SelectOptionDict]:
+    """确认对话框（默认选中确认）"""
     return [
-        selector.SelectOptionDict(value="cancel", label="❌ 取消"),
         selector.SelectOptionDict(value="confirm", label="✅ 确认执行"),
+        selector.SelectOptionDict(value="cancel", label="❌ 取消"),
     ]
 
 
 def _build_legal_type_options() -> List[selector.SelectOptionDict]:
-    """法定节假日类型选项（放假/调休上班）"""
     return [
         selector.SelectOptionDict(value="off", label="🌴 放假"),
         selector.SelectOptionDict(value="work", label="💼 调休上班"),
@@ -93,7 +119,6 @@ def _build_legal_type_options() -> List[selector.SelectOptionDict]:
 
 
 def _build_year_options() -> List[selector.SelectOptionDict]:
-    """预置数据的年份选项"""
     return [
         selector.SelectOptionDict(
             value=str(year), label=f"{year} 年国务院通知"
@@ -102,17 +127,14 @@ def _build_year_options() -> List[selector.SelectOptionDict]:
     ]
 
 
-# ---------- 数据格式化辅助 ----------
-
 def _format_legal_list(items: List[Dict]) -> str:
-    """格式化法定节假日列表为 markdown 文本"""
     if not items:
-        return "_暂无法定节假日数据_\n\n💡 建议使用「📥 从 2026 国务院通知导入」快速填充"
+        return "_暂无法定节假日数据_\n\n💡 可用「📥 从 2026 国务院通知导入」一键填充"
     lines = []
     grouped: Dict[str, List[Dict]] = {}
     for item in items:
         name = item.get("name", "?")
-        key = "调休" if "调休" in name else name
+        key = "调休上班日" if "调休" in name else name
         grouped.setdefault(key, []).append(item)
     for name, entries in grouped.items():
         dates = sorted([e.get("date", "") for e in entries])
@@ -121,100 +143,57 @@ def _format_legal_list(items: List[Dict]) -> str:
 
 
 def _format_custom_list(items: List[Dict]) -> str:
-    """格式化自定义节假日列表"""
     if not items:
         return "_暂无自定义节假日_"
     return "\n".join([f"• {i.get('name', '?')}：{i.get('date', i.get('start', '?'))}" for i in items])
 
 
-def _format_student_summary(data: Dict) -> str:
-    """格式化学生假期当前状态"""
-    lines = []
-    for item in data.get("studentdays", []):
-        enabled = item.get("enabled", True)
-        stype = item.get("type", "?")
-        name = item.get("name", "?")
-        status = "✅ 启用" if enabled else "❌ 禁用"
-        if "date" in item:
-            lines.append(f"• {name}（{stype}）：{status} - {item.get('date', '未设置')}")
-        else:
-            lines.append(f"• {name}（{stype}）：{status} - {item.get('start', '未设置')} ~ {item.get('end', '未设置')}")
-    if not lines:
+def _format_student_summary(items: List[Dict]) -> str:
+    if not items:
         return "_尚未配置学生假期_"
+    lines = []
+    for item in items:
+        enabled = item.get("enabled", True)
+        status = "✅ 启用" if enabled else "❌ 禁用"
+        name = item.get("name", "?")
+        if "date" in item:
+            lines.append(f"• {name}：{status} - {item.get('date', '未设置')}")
+        else:
+            lines.append(f"• {name}：{status} - {item.get('start', '未设置')} ~ {item.get('end', '未设置')}")
     return "\n".join(lines)
 
 
-class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Smart Workday 配置流 - 处理首次添加集成"""
+# ============================================================
+# 共享基类：ConfigFlow 和 OptionsFlow 复用所有步骤
+# ============================================================
 
-    VERSION = 1
+class BaseWorkdayFlow:
+    """ConfigFlow 和 OptionsFlow 共享的辅助方法基类。
 
-    @staticmethod
-    @callback
-    @override
-    def async_get_options_flow(config_entry: ConfigEntry):
-        """获取选项流 - HA 会在实例化后自动注入 self.config_entry"""
-        return SmartWorkdayOptionsFlow()
+    - Store 数据存取 (_load_data / _save_data / _ensure_data)
+    - entry.data 开关读写 (_update_entry_flags / _get_flags)
+    - async_step_route 及以下的子步骤（法定/学生/自定义编辑、高级编辑）
 
-    @override
-    async def async_step_user(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
-        """第一步：输入名称和选择模式"""
-        if user_input is not None:
-            return self.async_create_entry(
-                title=user_input.get("name", DEFAULT_NAME),
-                data={
-                    "name": user_input.get("name", DEFAULT_NAME),
-                    "holiday_mode": user_input.get(
-                        "holiday_mode", HolidayMode.STANDARD.value
-                    ),
-                },
-            )
-
-        return self.async_show_form(
-            step_id="user",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("name", default=DEFAULT_NAME): selector.TextSelector(),
-                    vol.Required(
-                        "holiday_mode", default=HolidayMode.STANDARD.value
-                    ): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_mode_options(), mode="dropdown"
-                        )
-                    ),
-                }
-            ),
-        )
-
-
-class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
-    """选项流 - 主菜单 + 高级 JSON 编辑
-
-    继承 OptionsFlowWithReload：调用 async_create_entry 时 HA 会自动 reload entry。
-
-    ⚠️ 不要覆盖 __init__：HA 的 OptionsFlowWithReload 不接受 config_entry 参数，
-    它在 OptionsFlowManager 内部会自动把 config_entry 挂到 self.config_entry 上。
-    参照 HA 官方 holiday 集成的 HolidayOptionsFlowHandler 就是这个模式。
+    ⚠️ 不共享入口步骤：HA ConfigFlow 入口是 async_step_user，
+    OptionsFlow 入口才是 async_step_init，二者无法复用。
+    ConfigFlow 只做「名称 + 模式 + 开关」后 create_entry，
+    HA 自动跳到 OptionsFlow 的第二步继续。
     """
 
+    async def _ensure_data(self) -> Dict[str, Any]:
+        if not getattr(self, "_data_loaded", False):
+            self._data = await self._load_data()
+            self._data_loaded = True
+        return self._data
+
     def _get_store(self) -> Store:
-        """获取当前条目的 Store 实例"""
         return Store(
             self.hass,
             STORAGE_VERSION,
             f"{DOMAIN}.{self.config_entry.entry_id}",
         )
 
-    async def _ensure_data(self) -> Dict[str, List]:
-        """惰性加载数据（HA 不会自动构造 __init__ 传入参数，所以首次进入步骤时加载）"""
-        if not getattr(self, "_data", None):
-            self._data = await self._load_data()
-        return self._data
-
-    async def _load_data(self) -> Dict[str, List]:
-        """从 Store 加载数据"""
+    async def _load_data(self) -> Dict[str, Any]:
         try:
             store = self._get_store()
             data = await store.async_load()
@@ -232,87 +211,98 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             return {"holidays": [], "customdays": [], "studentdays": []}
 
     async def _save_data(self, data: Dict) -> bool:
-        """保存数据到 Store"""
         try:
             store = self._get_store()
             for key in ("holidays", "customdays", "studentdays"):
                 data[key].sort(key=lambda x: x.get("date") or x.get("start", ""))
             await store.async_save(data)
+            self._data = data  # 缓存同步
             _LOGGER.info("数据保存成功")
             return True
         except Exception as e:
             _LOGGER.error("保存数据失败: %s", e)
             return False
 
-    def _update_entry_mode(self, mode_value: str) -> None:
-        """更新 entry.data 中的假期模式（同步方法，OptionsFlowWithReload 会在
-        async_create_entry 后自动 reload）"""
+    def _update_entry_flags(self, flags: Dict[str, bool]) -> None:
+        """更新 entry.data 中的顶层开关和模式"""
         new_data = dict(self.config_entry.data)
-        new_data["holiday_mode"] = mode_value
+        new_data.update(flags)
         self.hass.config_entries.async_update_entry(
             self.config_entry, data=new_data
         )
 
-    # ---------- 主菜单 ----------
+    def _get_flags(self) -> Dict[str, Any]:
+        """读取当前 entry.data 中的开关和模式"""
+        d = self.config_entry.data
+        return {
+            CONF_ENABLED_LEGAL: bool(d.get(CONF_ENABLED_LEGAL, True)),
+            CONF_ENABLED_STUDENT: bool(d.get(CONF_ENABLED_STUDENT, True)),
+            CONF_ENABLED_CUSTOM: bool(d.get(CONF_ENABLED_CUSTOM, True)),
+            CONF_HOLIDAY_MODE: d.get(CONF_HOLIDAY_MODE, HolidayMode.STANDARD.value),
+        }
+
+    # ================================================================
+    # 第 2 步：route（根据启用了哪一类自动路由到编辑页）
+    # ================================================================
 
     @override
-    async def async_step_init(
+    async def async_step_route(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
-        """主菜单：显示统计 + 5 个入口"""
-        await self._ensure_data()
+    ) -> ConfigFlowResult:
+        """第 2 步：路由到启用的分类编辑页（或高级编辑）"""
+        flags = self._get_flags()
 
         if user_input is not None:
             action = user_input.get("action")
-            if action == "legal":
+            if action == "legal" and flags[CONF_ENABLED_LEGAL]:
                 return await self.async_step_legal()
-            elif action == "student":
+            elif action == "student" and flags[CONF_ENABLED_STUDENT]:
                 return await self.async_step_student()
-            elif action == "custom":
+            elif action == "custom" and flags[CONF_ENABLED_CUSTOM]:
                 return await self.async_step_custom()
-            elif action == "mode":
-                return await self.async_step_mode()
             elif action == "advanced":
                 return await self.async_step_advanced()
-            # back 或其他：结束流程
-            return self.async_create_entry(title="", data={})
+            elif action == "back":
+                return await self.async_step_finish()
 
         return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("action"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_main_menu_options(), mode="list"
-                        )
-                    ),
-                }
-            ),
-            description_placeholders={"stats": self._build_stats_text()},
+            step_id="route",
+            data_schema=vol.Schema({
+                vol.Required("action"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=_build_route_actions(
+                            flags[CONF_ENABLED_LEGAL],
+                            flags[CONF_ENABLED_STUDENT],
+                            flags[CONF_ENABLED_CUSTOM],
+                        ),
+                        mode="list",
+                    )
+                ),
+            }),
+            description_placeholders={
+                "stats": self._build_route_stats(),
+            },
         )
 
-    def _build_stats_text(self) -> str:
-        """构建当前假期统计文本"""
-        h_count = len(self._data.get("holidays", []))
-        c_count = len(self._data.get("customdays", []))
-        s_count = len(self._data.get("studentdays", []))
-        s_enabled = sum(1 for i in self._data.get("studentdays", []) if i.get("enabled", True))
-        current_mode = self.config_entry.data.get("holiday_mode", HolidayMode.STANDARD.value)
-        mode_obj = next((m for m in HolidayMode if m.value == current_mode), HolidayMode.STANDARD)
+    async def _build_route_stats(self) -> str:
+        data = await self._ensure_data()
+        h_count = len(data.get("holidays", []))
+        s_count = len(data.get("studentdays", []))
+        c_count = len(data.get("customdays", []))
         return (
-            f"📊 **当前配置统计**\n"
+            f"📊 **数据概览**\n"
             f"  • 📅 法定节假日：{h_count} 条\n"
-            f"  • 🎓 学生假期：{s_enabled}/{s_count} 启用\n"
-            f"  • ⭐ 自定义节假日：{c_count} 条\n"
-            f"  • ⚙️ 当前模式：{mode_obj.display_name}\n"
-            f"\n📝 下方选择要管理的项目，进入后点「⬅️ 返回主菜单」继续。"
+            f"  • 🎓 学生假期：{s_count} 条\n"
+            f"  • ⭐ 自定义假期：{c_count} 条"
         )
 
-    # ---------- 法定节假日管理 ----------
+    # ================================================================
+    # 法定节假日管理
+    # ================================================================
 
     async def async_step_legal(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """法定节假日列表 + 操作入口"""
         if user_input is not None:
             action = user_input.get("action")
@@ -325,20 +315,17 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             elif action == "clear":
                 return await self.async_step_legal_clear()
             elif action == "back":
-                return await self.async_step_init()
+                return await self.async_step_route()
 
-        items = self._data.get("holidays", [])
+        data = await self._ensure_data()
+        items = data.get("holidays", [])
         return self.async_show_form(
             step_id="legal",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("action"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_legal_actions(), mode="list"
-                        )
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("action"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=_build_legal_actions(), mode="list")
+                ),
+            }),
             description_placeholders={
                 "list": _format_legal_list(items),
                 "count": str(len(items)),
@@ -347,68 +334,50 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
     async def async_step_legal_import(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """从预置数据导入法定节假日"""
+        errors: Dict[str, str] = {}
+
         if user_input is not None:
             try:
                 year = int(user_input.get("year"))
             except (ValueError, TypeError):
                 year = 2026
-            if user_input.get("confirm") != "confirm":
+            if user_input.get("confirm") == "confirm":
+                presets = LEGAL_HOLIDAY_PRESETS.get(year, [])
+                data = await self._ensure_data()
+                data["holidays"] = [
+                    {"name": item["name"], "date": item["date"], "uid": str(uuid.uuid4())[:8]}
+                    for item in presets
+                ]
+                if await self._save_data(data):
+                    return await self.async_step_legal()
+                errors["base"] = "save_failed"
+            else:
                 return await self.async_step_legal()
-
-            presets = LEGAL_HOLIDAY_PRESETS.get(year, [])
-            self._data["holidays"] = [
-                {
-                    "name": item["name"],
-                    "date": item["date"],
-                    "uid": str(uuid.uuid4())[:8],
-                }
-                for item in presets
-            ]
-            if await self._save_data(self._data):
-                return await self.async_step_legal()
-
-            return self.async_show_form(
-                step_id="legal_import",
-                data_schema=self._legal_import_schema(),
-                errors={"base": "save_failed"},
-                description_placeholders=self._legal_import_desc(),
-            )
 
         return self.async_show_form(
             step_id="legal_import",
-            data_schema=self._legal_import_schema(),
-            description_placeholders=self._legal_import_desc(),
-        )
-
-    def _legal_import_schema(self) -> vol.Schema:
-        """法定节假日导入表单"""
-        return vol.Schema(
-            {
+            data_schema=vol.Schema({
                 vol.Required("year", default="2026"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_build_year_options(), mode="dropdown"
-                    )
+                    selector.SelectSelectorConfig(options=_build_year_options(), mode="dropdown")
                 ),
                 vol.Required("confirm", default="confirm"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_build_confirm_options(default="confirm"), mode="list"
-                    )
+                    selector.SelectSelectorConfig(options=_build_confirm_options(), mode="list")
                 ),
-            }
+            }),
+            errors=errors,
+            description_placeholders={
+                "warning": (
+                    "⚠️ 导入将覆盖当前所有法定节假日数据。\n"
+                    f"支持年份：{', '.join(str(y) for y in sorted(LEGAL_HOLIDAY_PRESETS.keys()))}"
+                ),
+            },
         )
-
-    def _legal_import_desc(self) -> Dict[str, str]:
-        """导入步骤描述"""
-        years = ", ".join(str(y) for y in sorted(LEGAL_HOLIDAY_PRESETS.keys()))
-        return {
-            "warning": f"⚠️ 导入将覆盖当前所有法定节假日数据。\n支持年份：{years}",
-        }
 
     async def async_step_legal_add(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """手动添加法定节假日"""
         errors: Dict[str, str] = {}
 
@@ -420,43 +389,37 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             if not name or not date_str:
                 errors["base"] = "missing_required"
             else:
+                # 调休上班日自动补名称
                 if htype == "work" and "调休" not in name:
                     name = f"{name}调休上班"
-                entry = {
+                data = await self._ensure_data()
+                data.setdefault("holidays", []).append({
                     "name": name,
                     "date": date_str,
                     "uid": str(uuid.uuid4())[:8],
-                }
-                self._data.setdefault("holidays", []).append(entry)
-                if await self._save_data(self._data):
+                })
+                if await self._save_data(data):
                     return await self.async_step_legal()
                 errors["base"] = "save_failed"
 
         return self.async_show_form(
             step_id="legal_add",
-            data_schema=self._legal_add_schema(),
-            errors=errors,
-        )
-
-    def _legal_add_schema(self) -> vol.Schema:
-        """法定节假日添加表单"""
-        return vol.Schema(
-            {
+            data_schema=vol.Schema({
                 vol.Required("name", default="新假期"): selector.TextSelector(),
                 vol.Required("date"): selector.DateSelector(),
                 vol.Required("type", default="off"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_build_legal_type_options(), mode="list"
-                    )
+                    selector.SelectSelectorConfig(options=_build_legal_type_options(), mode="list")
                 ),
-            }
+            }),
+            errors=errors,
         )
 
     async def async_step_legal_delete(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """删除法定节假日条目"""
-        items = self._data.get("holidays", [])
+        data = await self._ensure_data()
+        items = data.get("holidays", [])
         if not items:
             return await self.async_step_legal()
 
@@ -466,7 +429,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                 if item.get("uid") == uid:
                     items.pop(i)
                     break
-            if await self._save_data(self._data):
+            if await self._save_data(data):
                 return await self.async_step_legal()
 
         options = [
@@ -478,50 +441,50 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         ]
         return self.async_show_form(
             step_id="legal_delete",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("uid"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=options, mode="dropdown")
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("uid"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=options, mode="dropdown")
+                ),
+            }),
         )
 
     async def async_step_legal_clear(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
-        """清空法定节假日（带确认）"""
+    ) -> ConfigFlowResult:
+        """清空法定节假日"""
         if user_input is not None:
             if user_input.get("confirm") == "confirm":
-                self._data["holidays"] = []
-                await self._save_data(self._data)
+                data = await self._ensure_data()
+                data["holidays"] = []
+                await self._save_data(data)
             return await self.async_step_legal()
 
+        data = await self._ensure_data()
+        count = len(data.get("holidays", []))
         return self.async_show_form(
             step_id="legal_clear",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("confirm", default="cancel"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_confirm_options(default="cancel"), mode="list"
-                        )
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("confirm", default="confirm"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=_build_confirm_options(), mode="list")
+                ),
+            }),
             description_placeholders={
-                "warning": f"⚠️ 即将清空 {len(self._data.get('holidays', []))} 条法定节假日数据，此操作不可撤销。",
+                "warning": f"⚠️ 即将清空 {count} 条法定节假日数据，此操作不可撤销。",
             },
         )
 
-    # ---------- 学生假期管理 ----------
+    # ================================================================
+    # 学生假期管理（一次性表单：5 项 checkbox + 日期）
+    # ================================================================
 
     async def async_step_student(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
-        """学生假期 5 项 - 一次性表单"""
-        await self._ensure_data()
+    ) -> ConfigFlowResult:
+        """学生假期 - 5 项 checkbox + 日期一次性表单"""
+        errors: Dict[str, str] = {}
 
         if user_input is not None:
+            data = await self._ensure_data()
             new_studentdays: List[Dict[str, Any]] = []
             for stype in StudentHolidayType:
                 default = STUDENT_HOLIDAY_DEFAULTS.get(stype, {})
@@ -550,24 +513,24 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                     entry["date"] = date_str
                 new_studentdays.append(entry)
 
-            self._data["studentdays"] = new_studentdays
-            if await self._save_data(self._data):
-                return await self.async_step_init()
+            data["studentdays"] = new_studentdays
+            if await self._save_data(data):
+                return await self.async_step_route()
+            errors["base"] = "save_failed"
 
-            return self.async_show_form(
-                step_id="student",
-                data_schema=self._student_schema(),
-                errors={"base": "save_failed"},
-            )
-
+        data = await self._ensure_data()
         return self.async_show_form(
             step_id="student",
-            data_schema=self._student_schema(),
+            data_schema=self._student_schema(data),
+            errors=errors,
+            description_placeholders={
+                "current": _format_student_summary(data.get("studentdays", [])),
+            },
         )
 
-    def _student_schema(self) -> vol.Schema:
-        """学生假期表单 - 5 项 checkbox + 日期"""
-        current = {item.get("type"): item for item in self._data.get("studentdays", [])}
+    def _student_schema(self, data: Dict) -> vol.Schema:
+        """学生假期表单 schema"""
+        current = {item.get("type"): item for item in data.get("studentdays", [])}
         schema_dict: Dict[Any, Any] = {}
         for stype in StudentHolidayType:
             item = current.get(stype.value, {})
@@ -592,11 +555,13 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
         return vol.Schema(schema_dict)
 
-    # ---------- 自定义节假日管理 ----------
+    # ================================================================
+    # 自定义节假日管理
+    # ================================================================
 
     async def async_step_custom(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """自定义节假日列表 + 操作入口"""
         if user_input is not None:
             action = user_input.get("action")
@@ -607,20 +572,17 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             elif action == "clear":
                 return await self.async_step_custom_clear()
             elif action == "back":
-                return await self.async_step_init()
+                return await self.async_step_route()
 
-        items = self._data.get("customdays", [])
+        data = await self._ensure_data()
+        items = data.get("customdays", [])
         return self.async_show_form(
             step_id="custom",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("action"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_custom_actions(), mode="list"
-                        )
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("action"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=_build_custom_actions(), mode="list")
+                ),
+            }),
             description_placeholders={
                 "list": _format_custom_list(items),
                 "count": str(len(items)),
@@ -629,7 +591,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
     async def async_step_custom_add(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """添加自定义节假日"""
         errors: Dict[str, str] = {}
 
@@ -651,28 +613,28 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                     entry["end"] = end_str
                 else:
                     entry["date"] = date_str
-                self._data.setdefault("customdays", []).append(entry)
-                if await self._save_data(self._data):
+                data = await self._ensure_data()
+                data.setdefault("customdays", []).append(entry)
+                if await self._save_data(data):
                     return await self.async_step_custom()
                 errors["base"] = "save_failed"
 
         return self.async_show_form(
             step_id="custom_add",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("name", default="新自定义假期"): selector.TextSelector(),
-                    vol.Required("date"): selector.DateSelector(),
-                    vol.Optional("end", default=""): selector.DateSelector(),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("name", default="新自定义假期"): selector.TextSelector(),
+                vol.Required("date"): selector.DateSelector(),
+                vol.Optional("end", default=""): selector.DateSelector(),
+            }),
             errors=errors,
         )
 
     async def async_step_custom_delete(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """删除自定义节假日"""
-        items = self._data.get("customdays", [])
+        data = await self._ensure_data()
+        items = data.get("customdays", [])
         if not items:
             return await self.async_step_custom()
 
@@ -682,7 +644,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                 if item.get("uid") == uid:
                     items.pop(i)
                     break
-            if await self._save_data(self._data):
+            if await self._save_data(data):
                 return await self.async_step_custom()
 
         options = [
@@ -694,83 +656,53 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         ]
         return self.async_show_form(
             step_id="custom_delete",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("uid"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(options=options, mode="dropdown")
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("uid"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=options, mode="dropdown")
+                ),
+            }),
         )
 
     async def async_step_custom_clear(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
-        """清空自定义节假日（带确认）"""
+    ) -> ConfigFlowResult:
+        """清空自定义节假日"""
         if user_input is not None:
             if user_input.get("confirm") == "confirm":
-                self._data["customdays"] = []
-                await self._save_data(self._data)
+                data = await self._ensure_data()
+                data["customdays"] = []
+                await self._save_data(data)
             return await self.async_step_custom()
 
+        data = await self._ensure_data()
+        count = len(data.get("customdays", []))
         return self.async_show_form(
             step_id="custom_clear",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("confirm", default="cancel"): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_confirm_options(default="cancel"), mode="list"
-                        )
-                    ),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("confirm", default="confirm"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=_build_confirm_options(), mode="list")
+                ),
+            }),
             description_placeholders={
-                "warning": f"⚠️ 即将清空 {len(self._data.get('customdays', []))} 条自定义节假日，此操作不可撤销。",
+                "warning": f"⚠️ 即将清空 {count} 条自定义节假日，此操作不可撤销。",
             },
         )
 
-    # ---------- 假期模式设置 ----------
-
-    async def async_step_mode(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
-        """选择假期模式"""
-        if user_input is not None:
-            mode_value = user_input.get("holiday_mode", HolidayMode.STANDARD.value)
-            self._update_entry_mode(mode_value)
-            return self.async_create_entry(title="", data={})
-
-        current_mode = self.config_entry.data.get(
-            "holiday_mode", HolidayMode.STANDARD.value
-        )
-        return self.async_show_form(
-            step_id="mode",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("holiday_mode", default=current_mode): selector.SelectSelector(
-                        selector.SelectSelectorConfig(
-                            options=_build_mode_options(), mode="list"
-                        )
-                    ),
-                }
-            ),
-        )
-
-    # ---------- 高级：JSON 编辑（兜底） ----------
+    # ================================================================
+    # 高级 JSON 编辑（兜底）
+    # ================================================================
 
     @override
     async def async_step_advanced(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ) -> ConfigFlowResult:
         """高级：直接编辑 JSON 数据"""
         errors: Dict[str, str] = {}
 
         current_json = "{}"
         try:
-            if self._data:
-                current_json = json.dumps(
-                    self._data, ensure_ascii=False, indent=2
-                )
+            data = await self._ensure_data()
+            current_json = json.dumps(data, ensure_ascii=False, indent=2)
         except Exception as e:
             _LOGGER.error("序列化数据失败: %s", e)
             current_json = "{}"
@@ -795,7 +727,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
                         if not errors:
                             if await self._save_data(parsed):
-                                return self.async_create_entry(title="", data={})
+                                return await self.async_step_route()
                             else:
                                 errors["json_content"] = "save_failed"
 
@@ -805,13 +737,135 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
         return self.async_show_form(
             step_id="advanced",
-            data_schema=vol.Schema(
-                {
-                    vol.Required("json_content", default=current_json): selector.TemplateSelector(),
-                }
-            ),
+            data_schema=vol.Schema({
+                vol.Required("json_content", default=current_json): selector.TemplateSelector(),
+            }),
             errors=errors,
             description_placeholders={
                 "tips": "数据存储在 HA 的 `.storage/` 目录（JSON 格式），编辑后自动保存。",
             },
         )
+
+
+# ============================================================
+# ConfigFlow - 首次添加集成（一步：名称 + 模式 + 开关）
+# ============================================================
+
+class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Smart Workday 配置流 - 首次添加时只填基础信息，
+    HA 会自动跳到 OptionsFlow 继续详细配置。
+    """
+
+    VERSION = 1
+
+    @staticmethod
+    @callback
+    @override
+    def async_get_options_flow(config_entry: ConfigEntry):
+        """获取选项流"""
+        return SmartWorkdayOptionsFlow()
+
+    @override
+    async def async_step_user(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> ConfigFlowResult:
+        """第 1 步（也是唯一一步）：名称 + 模式 + 3 个启用开关"""
+        errors: Dict[str, str] = {}
+
+        if user_input is not None:
+            name = (user_input.get(CONF_NAME) or DEFAULT_NAME).strip() or DEFAULT_NAME
+            data = {
+                CONF_NAME: name,
+                CONF_HOLIDAY_MODE: user_input[CONF_HOLIDAY_MODE],
+                CONF_ENABLED_LEGAL: bool(user_input[CONF_ENABLED_LEGAL]),
+                CONF_ENABLED_STUDENT: bool(user_input[CONF_ENABLED_STUDENT]),
+                CONF_ENABLED_CUSTOM: bool(user_input[CONF_ENABLED_CUSTOM]),
+            }
+            return self.async_create_entry(title=name, data=data)
+
+        return self.async_show_form(
+            step_id="user",
+            data_schema=vol.Schema({
+                vol.Required(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
+                vol.Required(CONF_HOLIDAY_MODE, default=HolidayMode.STANDARD.value): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=_build_mode_options(), mode="dropdown")
+                ),
+                vol.Required(CONF_ENABLED_LEGAL, default=True): selector.BooleanSelector(),
+                vol.Required(CONF_ENABLED_STUDENT, default=True): selector.BooleanSelector(),
+                vol.Required(CONF_ENABLED_CUSTOM, default=True): selector.BooleanSelector(),
+            }),
+            errors=errors,
+            description_placeholders={
+                "tips": (
+                    "⚙️ 输入集成名称、选择模式、勾选启用的假期类型。\n"
+                    "💡 提交后会跳到第 2 步继续详细配置。"
+                ),
+            },
+        )
+
+
+# ============================================================
+# OptionsFlow - 修改配置（两步：开关 + 路由编辑）
+# ============================================================
+
+class SmartWorkdayOptionsFlow(BaseWorkdayFlow, OptionsFlowWithReload):
+    """Smart Workday 选项流 - 两步式 UI 表单
+
+    - 第 1 步 (init)：3 个启用开关 + 假期模式
+    - 第 2 步 (route)：根据启用了哪一类路由到编辑页
+
+    继承 OptionsFlowWithReload：async_create_entry 自动 reload entry。
+    ⚠️ 不要覆盖 __init__：HA 会自动注入 self.config_entry。
+    """
+
+    @override
+    async def async_step_init(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ) -> ConfigFlowResult:
+        """第 1 步：模式 + 3 个启用开关"""
+        if user_input is not None:
+            # 保存开关到 entry.data
+            flags = {
+                CONF_ENABLED_LEGAL: bool(user_input[CONF_ENABLED_LEGAL]),
+                CONF_ENABLED_STUDENT: bool(user_input[CONF_ENABLED_STUDENT]),
+                CONF_ENABLED_CUSTOM: bool(user_input[CONF_ENABLED_CUSTOM]),
+                CONF_HOLIDAY_MODE: user_input[CONF_HOLIDAY_MODE],
+            }
+            self._update_entry_flags(flags)
+            # 自动进入第 2 步
+            return await self.async_step_route()
+
+        current = self._get_flags()
+        schema = vol.Schema({
+            vol.Required(CONF_HOLIDAY_MODE, default=current[CONF_HOLIDAY_MODE]): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=_build_mode_options(), mode="dropdown")
+            ),
+            vol.Required(CONF_ENABLED_LEGAL, default=current[CONF_ENABLED_LEGAL]): selector.BooleanSelector(),
+            vol.Required(CONF_ENABLED_STUDENT, default=current[CONF_ENABLED_STUDENT]): selector.BooleanSelector(),
+            vol.Required(CONF_ENABLED_CUSTOM, default=current[CONF_ENABLED_CUSTOM]): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="init",
+            data_schema=schema,
+            description_placeholders={"tips": self._build_init_tips(current)},
+        )
+
+    def _build_init_tips(self, flags: Dict[str, Any]) -> str:
+        mode_obj = next(
+            (m for m in HolidayMode if m.value == flags[CONF_HOLIDAY_MODE]),
+            HolidayMode.STANDARD,
+        )
+        return (
+            f"⚙️ **当前配置**\n"
+            f"  • 模式：{mode_obj.display_name}\n"
+            f"  • 📅 法定节假日：{'✅ 启用' if flags[CONF_ENABLED_LEGAL] else '❌ 禁用'}\n"
+            f"  • 🎓 学生假期：{'✅ 启用' if flags[CONF_ENABLED_STUDENT] else '❌ 禁用'}\n"
+            f"  • ⭐ 自定义假期：{'✅ 启用' if flags[CONF_ENABLED_CUSTOM] else '❌ 禁用'}\n"
+            f"\n💡 禁用某类假期后，该类数据不再显示也不参与工作日/节假日判定。"
+        )
+
+    @override
+    async def async_step_finish(self) -> ConfigFlowResult:
+        """完成选项流（HA 会自动 reload）"""
+        return self.async_create_entry(title="", data={})

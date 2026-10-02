@@ -6,27 +6,17 @@
         "step": {
             "user": {
                 "title": "配置智能工作日",
-                "description": "设置集成名称和假期计算模式。首次添加后可以通过「选项」进入详细管理界面。",
+                "description": "{tips}",
                 "data": {
                     "name": "集成名称",
-                    "holiday_mode": "假期模式"
-                }
-            }
-        }
-    },
-
-    "options": {
-        "title": "智能工作日配置",
-        "step": {
-            "init": {
-                "title": "智能工作日主菜单",
-                "description": "{stats}",
-                "data": {
-                    "action": "选择管理入口"
+                    "holiday_mode": "假期模式",
+                    "enabled_legal": "📅 启用法定节假日",
+                    "enabled_student": "🎓 启用学生假期",
+                    "enabled_custom": "⭐ 启用自定义假期"
                 }
             },
             "legal": {
-                "title": "法定节假日管理",
+                "title": "📅 法定节假日管理",
                 "description": "当前法定节假日共 **{count}** 条：\n\n{list}\n\n请选择操作：",
                 "data": {
                     "action": "选择操作"
@@ -71,8 +61,8 @@
                 }
             },
             "student": {
-                "title": "学生假期管理",
-                "description": "勾选要启用的学生假期，并设置对应日期。禁用的条目日期可留空。",
+                "title": "🎓 学生假期管理",
+                "description": "当前配置：\n\n{current}\n\n勾选要启用的学生假期，并设置对应日期。禁用的条目日期可留空。",
                 "data": {
                     "enable_winter": "启用寒假",
                     "winter_start": "寒假开始日期",
@@ -94,7 +84,7 @@
                 }
             },
             "custom": {
-                "title": "自定义节假日管理",
+                "title": "⭐ 自定义节假日管理",
                 "description": "当前自定义节假日共 **{count}** 条：\n\n{list}\n\n请选择操作：",
                 "data": {
                     "action": "选择操作"
@@ -127,15 +117,146 @@
                     "confirm": "确认操作"
                 }
             },
-            "mode": {
-                "title": "假期模式设置",
-                "description": "选择当前假期计算模式：",
+            "advanced": {
+                "title": "📝 高级：直接编辑 JSON",
+                "description": "{tips}",
                 "data": {
-                    "holiday_mode": "假期模式"
+                    "json_content": "JSON 数据"
+                },
+                "errors": {
+                    "invalid_json": "❌ JSON 格式错误，请检查语法",
+                    "invalid_json_structure": "❌ JSON 结构错误，需要包含 holidays、customdays、studentdays 字段",
+                    "save_failed": "❌ 保存失败",
+                    "empty_content": "❌ 内容不能为空"
+                }
+            }
+        }
+    },
+
+    "options": {
+        "title": "智能工作日配置",
+        "step": {
+            "init": {
+                "title": "智能工作日配置（第 1 步）",
+                "description": "{tips}",
+                "data": {
+                    "holiday_mode": "假期模式",
+                    "enabled_legal": "📅 启用法定节假日",
+                    "enabled_student": "🎓 启用学生假期",
+                    "enabled_custom": "⭐ 启用自定义假期"
+                }
+            },
+            "route": {
+                "title": "选择要编辑的分类（第 2 步）",
+                "description": "{stats}\n\n💡 选择要编辑的假期分类，或返回主菜单完成。",
+                "data": {
+                    "action": "选择操作"
+                }
+            },
+            "legal": {
+                "title": "📅 法定节假日管理",
+                "description": "当前法定节假日共 **{count}** 条：\n\n{list}\n\n请选择操作：",
+                "data": {
+                    "action": "选择操作"
+                }
+            },
+            "legal_import": {
+                "title": "从国务院通知导入法定节假日",
+                "description": "{warning}",
+                "data": {
+                    "year": "选择年份",
+                    "confirm": "确认操作"
+                },
+                "errors": {
+                    "save_failed": "❌ 保存失败，请重试"
+                }
+            },
+            "legal_add": {
+                "title": "手动添加法定节假日",
+                "description": "填写名称和日期。如为调休上班日，请在「类型」中选择「💼 调休上班」。",
+                "data": {
+                    "name": "假期名称（如：元旦、春节）",
+                    "date": "日期",
+                    "type": "类型"
+                },
+                "errors": {
+                    "missing_required": "❌ 名称和日期不能为空",
+                    "save_failed": "❌ 保存失败"
+                }
+            },
+            "legal_delete": {
+                "title": "删除法定节假日",
+                "description": "选择要删除的条目：",
+                "data": {
+                    "uid": "选择要删除的条目"
+                }
+            },
+            "legal_clear": {
+                "title": "清空法定节假日",
+                "description": "{warning}",
+                "data": {
+                    "confirm": "确认操作"
+                }
+            },
+            "student": {
+                "title": "🎓 学生假期管理",
+                "description": "当前配置：\n\n{current}\n\n勾选要启用的学生假期，并设置对应日期。禁用的条目日期可留空。",
+                "data": {
+                    "enable_winter": "启用寒假",
+                    "winter_start": "寒假开始日期",
+                    "winter_end": "寒假结束日期",
+                    "enable_summer": "启用暑假",
+                    "summer_start": "暑假开始日期",
+                    "summer_end": "暑假结束日期",
+                    "enable_spring": "启用春假",
+                    "spring_start": "春假开始日期",
+                    "spring_end": "春假结束日期",
+                    "enable_autumn": "启用秋假",
+                    "autumn_start": "秋假开始日期",
+                    "autumn_end": "秋假结束日期",
+                    "enable_children": "启用儿童节",
+                    "children_date": "儿童节日期"
+                },
+                "errors": {
+                    "save_failed": "❌ 保存失败"
+                }
+            },
+            "custom": {
+                "title": "⭐ 自定义节假日管理",
+                "description": "当前自定义节假日共 **{count}** 条：\n\n{list}\n\n请选择操作：",
+                "data": {
+                    "action": "选择操作"
+                }
+            },
+            "custom_add": {
+                "title": "添加自定义节假日",
+                "description": "填写名称和日期。如需指定范围，请填「结束日期」，留空则为单日。",
+                "data": {
+                    "name": "假期名称",
+                    "date": "开始日期",
+                    "end": "结束日期（可选，留空为单日）"
+                },
+                "errors": {
+                    "missing_required": "❌ 名称和开始日期不能为空",
+                    "save_failed": "❌ 保存失败"
+                }
+            },
+            "custom_delete": {
+                "title": "删除自定义节假日",
+                "description": "选择要删除的条目：",
+                "data": {
+                    "uid": "选择要删除的条目"
+                }
+            },
+            "custom_clear": {
+                "title": "清空自定义节假日",
+                "description": "{warning}",
+                "data": {
+                    "confirm": "确认操作"
                 }
             },
             "advanced": {
-                "title": "高级：直接编辑 JSON",
+                "title": "📝 高级：直接编辑 JSON",
                 "description": "{tips}",
                 "data": {
                     "json_content": "JSON 数据"
@@ -161,7 +282,7 @@
     },
 
     "mode_descriptions": {
-        "standard": "法定节假日 + 自定义假期",
-        "custom": "只有自定义假期算放假"
+        "standard": "法定节假日 + 自定义假期都算放假",
+        "custom": "只有自定义假期算放假，法定仅参考"
     }
 }

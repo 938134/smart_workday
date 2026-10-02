@@ -1,4 +1,4 @@
-"""Calendar platform for Smart Workday - 3 个独立日历实体（法定/学生/自定义）."""
+"""Calendar platform for Smart Workday - 单一日历实体，事件 description 标注来源类型。"""
 
 import logging
 from datetime import datetime, timedelta
@@ -16,50 +16,49 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt
 
-from .const import DOMAIN, CalendarType
+from .const import (
+    DOMAIN,
+    EVENT_SOURCE_LEGAL,
+    EVENT_SOURCE_STUDENT,
+    EVENT_SOURCE_CUSTOM,
+    EVENT_SOURCE_MAKEUP,
+    SOURCE_TO_CATEGORY,
+)
 from .coordinator import SmartWorkdayCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-# 日历类型 → 显示名称
-CALENDAR_NAMES = {
-    CalendarType.LEGAL: "法定节假日日历",
-    CalendarType.STUDENT: "学生假期日历",
-    CalendarType.CUSTOM: "自定义假期日历",
-}
-
-# 日历类型 → 图标
-CALENDAR_ICONS = {
-    CalendarType.LEGAL: "mdi:calendar-star",
-    CalendarType.STUDENT: "mdi:school",
-    CalendarType.CUSTOM: "mdi:star-circle",
-}
+SW_VERSION = "2.5.0"
 
 
 class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
-    """日历实体 - 每个类型独立一个日历，事件自动归类"""
+    """单一日历实体 - 显示所有类型的假期事件，description 标注来源。"""
 
     _attr_has_entity_name = True
+    _attr_supported_features = (
+        CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
+    )
+    _attr_icon = "mdi:calendar-variant"
 
-    def __init__(self, coordinator: SmartWorkdayCoordinator, device_info: DeviceInfo,
-                 cal_type: CalendarType):
+    def __init__(self, coordinator: SmartWorkdayCoordinator, device_info: DeviceInfo):
         super().__init__(coordinator)
-        self._cal_type = cal_type
-        self._attr_unique_id = f"{coordinator.entry_id}_calendar_{cal_type.value}"
-        self._attr_name = CALENDAR_NAMES[cal_type]
-        self._attr_icon = CALENDAR_ICONS[cal_type]
+        self._attr_unique_id = f"{coordinator.entry_id}_calendar"
+        self._attr_name = "假期日历"
         self._attr_device_info = device_info
-        self._attr_supported_features = (
-            CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
-        )
+        self._attr_sw_version = SW_VERSION
         self._event_list: List[CalendarEvent] = []
 
     @property
-    def _data_category(self) -> str:
-        """日历类型 → 数据分类键"""
-        return self._cal_type.data_category
+    def _enabled_flags(self) -> dict:
+        """从 data_manager 读取顶层开关（默认 True 向后兼容）"""
+        return getattr(
+            self.coordinator.data_manager,
+            "_enabled_flags",
+            {"legal": True, "student": True, "custom": True},
+        )
 
-    def _create_event(self, start_date, end_date, name, uid: str = "") -> CalendarEvent:
+    def _create_event(self, start_date, end_date, name, uid: str = "",
+                      source: str = "") -> CalendarEvent:
         """创建日历事件"""
         # 解析开始日期
         if isinstance(start_date, str):
@@ -86,15 +85,11 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         if event_end.tzinfo is None:
             event_end = event_end.replace(tzinfo=dt.DEFAULT_TIME_ZONE)
 
-        # 描述标注类型
-        desc_map = {
-            CalendarType.LEGAL: "法定节假日",
-            CalendarType.STUDENT: "学生假期",
-            CalendarType.CUSTOM: "自定义假期",
-        }
-        description = desc_map.get(self._cal_type, "")
+        # 描述标注类型（用于日历 UI 显示来源 + 删除时推断分类）
         if "调休" in name:
-            description = "调休上班日"
+            description = EVENT_SOURCE_MAKEUP
+        else:
+            description = source
 
         return CalendarEvent(
             start=event_start,
@@ -105,27 +100,47 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         )
 
     async def _generate_events(self) -> List[CalendarEvent]:
-        """生成当前日历类型的所有事件"""
+        """生成日历事件（顶层开关关闭的分类不显示）"""
         events = []
         data = await self.coordinator.data_manager.get_calendar_events()
+        flags = self._enabled_flags
 
-        category = self._data_category
-        for item in data.get(category, []):
-            # 新格式：enabled=False 的条目不出现在日历上（向后兼容）
-            if category == "studentdays" and not item.get("enabled", True):
-                continue
-            uid = item.get("uid", "")
-            name = item.get("name", "")
-            if "date" in item:
+        # 法定节假日
+        if flags.get("legal"):
+            for item in data.get("holidays", []):
                 events.append(self._create_event(
-                    item["date"], item["date"], name, uid
-                ))
-            elif "start" in item and "end" in item:
-                events.append(self._create_event(
-                    item["start"], item["end"], name, uid
+                    item.get("date") or item.get("start"),
+                    item.get("date") or item.get("end"),
+                    item.get("name", "法定节假日"),
+                    item.get("uid", ""),
+                    EVENT_SOURCE_LEGAL,
                 ))
 
-        _LOGGER.debug("生成 %s 日历事件: %d 个", self._cal_type.display_name, len(events))
+        # 学生假期（条目 enabled 过滤）
+        if flags.get("student"):
+            for item in data.get("studentdays", []):
+                if not item.get("enabled", True):
+                    continue
+                events.append(self._create_event(
+                    item.get("date") or item.get("start"),
+                    item.get("date") or item.get("end"),
+                    item.get("name", "学生假期"),
+                    item.get("uid", ""),
+                    EVENT_SOURCE_STUDENT,
+                ))
+
+        # 自定义假期
+        if flags.get("custom"):
+            for item in data.get("customdays", []):
+                events.append(self._create_event(
+                    item.get("date") or item.get("start"),
+                    item.get("date") or item.get("end"),
+                    item.get("name", "自定义假期"),
+                    item.get("uid", ""),
+                    EVENT_SOURCE_CUSTOM,
+                ))
+
+        _LOGGER.debug("生成日历事件: %d 个", len(events))
         return events
 
     async def async_get_events(self, hass, start_date, end_date) -> List[CalendarEvent]:
@@ -154,14 +169,14 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         """更新日历事件"""
         try:
             self._event_list = await self._generate_events()
-            _LOGGER.debug("%s 日历更新完成，共 %d 个事件", self._cal_type.display_name, len(self._event_list))
+            _LOGGER.debug("日历更新完成，共 %d 个事件", len(self._event_list))
         except Exception as e:
             _LOGGER.error("更新日历失败: %s", e)
 
     # ---------- 日历 UI 原生增删支持 ----------
 
     async def async_create_event(self, **kwargs) -> CalendarEvent:
-        """通过日历 UI 创建事件 - 自动归入当前日历类型"""
+        """通过日历 UI 创建事件 - 通过 description 推断类型"""
         summary = kwargs.get("summary", "").strip()
         if not summary:
             raise ValueError("事件名称不能为空")
@@ -179,19 +194,39 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         if end_dt is not None:
             end_str = end_dt.strftime("%Y-%m-%d") if hasattr(end_dt, "strftime") else str(end_dt)[:10]
 
-        # 直接归入当前日历类型
-        category = self._data_category
+        # 推断分类：
+        # 1) 若 description 匹配已知来源前缀 → 用对应分类
+        # 2) 若名称含"调休" → 法定节假日
+        # 3) 若名称含"学生"或"寒/暑/春/秋/儿童节" → 学生假期
+        # 4) 默认归为自定义
+        category = None
+        for src, cat in SOURCE_TO_CATEGORY.items():
+            if description and description.startswith(src):
+                category = cat
+                break
+        if category is None:
+            if "调休" in summary:
+                category = "holidays"
+            elif any(kw in summary for kw in ("寒假", "暑假", "春假", "秋假", "儿童节", "学生")):
+                category = "studentdays"
+            else:
+                category = "customdays"
+
+        # 调休名称自动补后缀
+        if category == "holidays" and "调休" not in summary:
+            # 用户主动添加但没写"调休"，视为普通法定假日（保持原名）
+            pass
+
         dm = self.coordinator.data_manager
         await dm.add_entry(category, summary, start_str, end_str, description)
-        # 刷新协调器，让传感器立即感知
         await self.coordinator.async_request_refresh()
 
         _LOGGER.info(
-            "%s 日历添加: %s (%s~%s)",
-            self._cal_type.display_name, summary, start_str, end_str
+            "日历UI添加: [%s] %s (%s~%s)",
+            category, summary, start_str, end_str
         )
 
-        return self._create_event(start_str, end_str, summary, "")
+        return self._create_event(start_str, end_str, summary, "", description)
 
     async def async_delete_event(self, uid: str, **kwargs) -> None:
         """通过日历 UI 删除事件"""
@@ -212,7 +247,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置 3 个日历实体（法定/学生/自定义）"""
+    """设置单一日历实体"""
     _LOGGER.debug("设置日历: %s", entry.entry_id)
 
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
@@ -221,13 +256,9 @@ async def async_setup_entry(
         identifiers={(DOMAIN, entry.entry_id)},
         name=entry.data.get("name", "智能工作日"),
         manufacturer="Smart Workday",
-        model="工作日传感器",
-        sw_version="2.4.0",
+        model="假期日历",
+        sw_version=SW_VERSION,
     )
 
-    calendars = [
-        SmartWorkdayCalendar(coordinator, device_info, cal_type)
-        for cal_type in CalendarType
-    ]
-    async_add_entities(calendars)
-    _LOGGER.info("已添加 %d 个日历实体", len(calendars))
+    async_add_entities([SmartWorkdayCalendar(coordinator, device_info)])
+    _LOGGER.info("已添加日历实体")
