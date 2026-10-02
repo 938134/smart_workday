@@ -1,11 +1,12 @@
 {
     "title": "智能工作日",
-    
+
     "config": {
         "title": "配置智能工作日",
         "step": {
             "user": {
                 "title": "配置智能工作日",
+                "description": "设置集成名称和假期计算模式",
                 "data": {
                     "name": "集成名称",
                     "holiday_mode": "假期模式"
@@ -13,59 +14,47 @@
             }
         }
     },
-    
+
     "options": {
         "title": "智能工作日配置",
         "step": {
             "init": {
-                "title": "智能工作日配置",
-                "description": "{sections}",
+                "title": "节假日管理",
+                "description": "{stats}",
                 "data": {
                     "holiday_mode": "假期模式",
-                    "yaml_content": "YAML假期配置"
+                    "action": "选择操作"
+                }
+            },
+            "advanced": {
+                "title": "高级：直接编辑数据",
+                "description": "{tips}",
+                "data": {
+                    "holiday_mode": "假期模式",
+                    "json_content": "JSON 数据"
                 },
                 "errors": {
-                    "invalid_yaml": "❌ YAML格式错误，请检查语法",
-                    "invalid_yaml_structure": "❌ YAML结构错误，需要包含 holidays、customdays、studentdays 部分",
-                    "save_failed": "❌ 保存文件失败，请检查权限",
-                    "empty_content": "❌ 内容不能为空",
-                    "unknown_error": "❌ 未知错误，请查看日志"
+                    "invalid_json": "❌ JSON 格式错误，请检查语法",
+                    "invalid_json_structure": "❌ JSON 结构错误，需要包含 holidays、customdays、studentdays 字段",
+                    "save_failed": "❌ 保存失败",
+                    "empty_content": "❌ 内容不能为空"
                 }
             }
         }
     },
-    
-    "sections": {
-        "mode_description": {
-            "title": "假期模式说明",
-            "content": "请选择假期计算模式：\n\n• 📅 **标准模式**：法定节假日 + 自定义假期\n• 🌟 **自由模式**：只有自定义假期"
-        },
-        "holiday_types": {
-            "title": "假期类型说明",
-            "content": "配置文件支持三种类型：\n\n• **holidays**：法定节假日（含调休）- 标准模式生效\n• **customdays**：自定义假期 - 所有模式生效\n• **studentdays**：学生假期 - 独立传感器"
-        }
-    },
-    
+
     "mode_names": {
         "standard": "标准模式",
         "custom": "自由模式"
     },
-    
+
     "mode_icons": {
         "standard": "📅",
         "custom": "🌟"
     },
-    
+
     "mode_descriptions": {
         "standard": "法定节假日 + 自定义假期",
         "custom": "只有自定义假期算放假"
-    },
-    
-    "state_names": {
-        "workday": "工作日",
-        "workday_special": "调休日",
-        "holiday": "节假日",
-        "holiday_custom": "自定义假日",
-        "weekend": "双休日"
     }
 }

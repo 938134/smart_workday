@@ -1,27 +1,23 @@
 """Config flow for Smart Workday."""
 
+import json
+import logging
+from typing import Any, Dict, List, Optional
+
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.helpers import selector
-import logging
-import yaml
-import os
-import aiofiles
-from typing import Any, Dict, Optional
+from homeassistant.helpers.storage import Store
 
-from .const import (
-    DOMAIN, 
-    DEFAULT_NAME, 
-    HolidayMode,
-    DEFAULT_YAML_TEMPLATE,
-)
+from .const import DOMAIN, DEFAULT_NAME, HolidayMode
+from .coordinator import STORAGE_VERSION
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """配置流 - 处理首次添加集成"""
-    
+
     VERSION = 1
 
     async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
@@ -31,31 +27,34 @@ class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 title=user_input.get("name", DEFAULT_NAME),
                 data={
                     "name": user_input.get("name", DEFAULT_NAME),
-                    "holiday_mode": user_input.get("holiday_mode", HolidayMode.STANDARD.value),
-                    "calendar_file": "calendar.yaml",
-                }
+                    "holiday_mode": user_input.get(
+                        "holiday_mode", HolidayMode.STANDARD.value
+                    ),
+                },
             )
 
-        # 模式选项
         mode_options = [
             selector.SelectOptionDict(
-                value=mode.value, 
-                label=f"{mode.icon} {mode.display_name} - {mode.description}"
+                value=mode.value,
+                label=f"{mode.icon} {mode.display_name} - {mode.description}",
             )
             for mode in HolidayMode
         ]
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required("name", default=DEFAULT_NAME): selector.TextSelector(),
-                vol.Required("holiday_mode", default=HolidayMode.STANDARD.value): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=mode_options,
-                        mode="dropdown",
-                    )
-                ),
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required("name", default=DEFAULT_NAME): selector.TextSelector(),
+                    vol.Required(
+                        "holiday_mode", default=HolidayMode.STANDARD.value
+                    ): selector.SelectSelector(
+                        selector.SelectSelectorConfig(
+                            options=mode_options, mode="dropdown"
+                        )
+                    ),
+                }
+            ),
         )
 
     @staticmethod
@@ -65,157 +64,213 @@ class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class SmartWorkdayOptionsFlow(config_entries.OptionsFlow):
-    """选项流 - 处理配置修改"""
-    
+    """选项流 - 主菜单 + 高级 JSON 编辑"""
+
     def __init__(self, config_entry):
-        """初始化"""
         self._config_entry = config_entry
-        self._calendar_path = None
-        self._yaml_content = None
+        self._data: Dict[str, List] = {}
+        self._pending_mode: str = ""
+
+    def _get_store(self) -> Store:
+        """获取当前条目的 Store 实例"""
+        return Store(
+            self.hass,
+            STORAGE_VERSION,
+            f"{DOMAIN}.{self._config_entry.entry_id}",
+        )
+
+    async def _load_data(self) -> Dict[str, List]:
+        """从 Store 加载数据"""
+        try:
+            store = self._get_store()
+            data = await store.async_load()
+            if not isinstance(data, dict):
+                data = {}
+            data.setdefault("holidays", [])
+            data.setdefault("customdays", [])
+            data.setdefault("studentdays", [])
+            for key in ("holidays", "customdays", "studentdays"):
+                if not isinstance(data[key], list):
+                    data[key] = []
+            return data
+        except Exception as e:
+            _LOGGER.error("加载数据失败: %s", e)
+            return {"holidays": [], "customdays": [], "studentdays": []}
+
+    async def _save_data(self, data: Dict) -> bool:
+        """保存数据到 Store"""
+        try:
+            store = self._get_store()
+            for key in ("holidays", "customdays", "studentdays"):
+                data[key].sort(key=lambda x: x.get("date") or x.get("start", ""))
+            await store.async_save(data)
+            _LOGGER.info("数据保存成功")
+            return True
+        except Exception as e:
+            _LOGGER.error("保存数据失败: %s", e)
+            return False
+
+    async def _reload_integration(self, mode_value: str):
+        """更新模式并重载集成"""
+        new_data = dict(self._config_entry.data)
+        new_data["holiday_mode"] = mode_value
+        self.hass.config_entries.async_update_entry(
+            self._config_entry, data=new_data
+        )
+        await self.hass.config_entries.async_reload(self._config_entry.entry_id)
+
+    # ---------- 主菜单 ----------
 
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None):
-        """第一步：模式选择和YAML编辑"""
-        # 获取日历文件路径
-        calendar_file = self._config_entry.data.get("calendar_file", "calendar.yaml")
-        self._calendar_path = self.hass.config.path(
-            "custom_components", DOMAIN, calendar_file
-        )
-        
-        # 读取当前YAML内容
-        if not self._yaml_content:
-            self._yaml_content = await self._read_yaml_file()
-        
+        """主菜单：选模式 + 选操作"""
+        if not self._data:
+            self._data = await self._load_data()
+
         if user_input is not None:
-            return await self._handle_user_input(user_input)
-        
-        return await self._show_form({})
+            mode_value = user_input.get(
+                "holiday_mode", HolidayMode.STANDARD.value
+            )
+            action = user_input.get("action", "save_only")
+            self._pending_mode = mode_value
 
-    async def _read_yaml_file(self) -> str:
-        """读取YAML文件内容"""
-        try:
-            if os.path.exists(self._calendar_path):
-                async with aiofiles.open(self._calendar_path, 'r', encoding='utf-8') as f:
-                    content = await f.read()
-                    return content if content.strip() else DEFAULT_YAML_TEMPLATE
+            if action == "advanced":
+                return await self.async_step_advanced()
             else:
-                # 文件不存在，创建默认文件
-                async with aiofiles.open(self._calendar_path, 'w', encoding='utf-8') as f:
-                    await f.write(DEFAULT_YAML_TEMPLATE)
-                return DEFAULT_YAML_TEMPLATE
-        except Exception as e:
-            _LOGGER.error("读取YAML文件失败: %s", e)
-            return DEFAULT_YAML_TEMPLATE
+                await self._reload_integration(mode_value)
+                return self.async_create_entry(title="", data={})
 
-    def _build_sections_text(self) -> str:
-        """构建假期类型说明"""
-        lines = []
-        lines.append("📋 **假期类型**")
-        lines.append("  • **holidays**：法定节假日(含调休) - 标准模式生效")
-        lines.append("  • **customdays**：自定义假期 - 所有模式生效")
-        lines.append("  • **studentdays**：学生假期 - 独立传感器")
-        lines.append("")
-        lines.append(f"📁 **配置文件**：`{self._calendar_path}`")
-        return "\n".join(lines)
+        current_mode = self._config_entry.data.get(
+            "holiday_mode", HolidayMode.STANDARD.value
+        )
+        stats = self._build_stats_text()
 
-    async def _handle_user_input(self, user_input: Dict[str, Any]) -> Dict[str, Any]:
-        """处理用户输入"""
-        errors = {}
-        
-        try:
-            # 获取模式
-            mode_value = user_input.get("holiday_mode")
-            holiday_mode = HolidayMode(mode_value)
-            
-            # 获取YAML内容
-            yaml_content = user_input.get("yaml_content", "").strip()
-            
-            # 验证非空
-            if not yaml_content:
-                errors["yaml_content"] = "empty_content"
-                return await self._show_form(errors)
-            
-            # 验证YAML格式
-            try:
-                data = yaml.safe_load(yaml_content)
-                if not isinstance(data, dict):
-                    errors["yaml_content"] = "invalid_yaml_structure"
-                    return await self._show_form(errors)
-                
-                # 确保必要的键存在
-                data.setdefault("holidays", [])
-                data.setdefault("customdays", [])
-                data.setdefault("studentdays", [])
-                
-                # 验证数据结构
-                for key in ["holidays", "customdays", "studentdays"]:
-                    if not isinstance(data[key], list):
-                        errors["yaml_content"] = "invalid_yaml_structure"
-                        return await self._show_form(errors)
-                
-            except yaml.YAMLError as e:
-                _LOGGER.error("YAML解析错误: %s", e)
-                errors["yaml_content"] = "invalid_yaml"
-                return await self._show_form(errors)
-            
-            # 保存YAML文件
-            try:
-                async with aiofiles.open(self._calendar_path, 'w', encoding='utf-8') as f:
-                    await f.write(yaml_content)
-                _LOGGER.info("YAML文件保存成功: %s", self._calendar_path)
-            except Exception as e:
-                _LOGGER.error("保存YAML文件失败: %s", e)
-                errors["base"] = "save_failed"
-                return await self._show_form(errors)
-            
-            # 更新配置中的模式
-            new_data = dict(self._config_entry.data)
-            new_data["holiday_mode"] = holiday_mode.value
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
-            
-            # 触发重新加载
-            await self.hass.config_entries.async_reload(self._config_entry.entry_id)
-            
-            return self.async_create_entry(title="", data={})
-            
-        except ValueError as e:
-            _LOGGER.error("模式值错误: %s", e)
-            errors["base"] = "unknown_error"
-            return await self._show_form(errors)
-        except Exception as e:
-            _LOGGER.error("保存配置失败: %s", e)
-            errors["base"] = "unknown_error"
-            return await self._show_form(errors)
-
-    async def _show_form(self, errors: Dict[str, str]):
-        """显示配置表单"""
-        current_mode = self._config_entry.data.get("holiday_mode", HolidayMode.STANDARD.value)
-        
-        # 模式选项
         mode_options = [
             selector.SelectOptionDict(
-                value=mode.value, 
-                label=f"{mode.icon} {mode.display_name} - {mode.description}"
+                value=mode.value,
+                label=f"{mode.icon} {mode.display_name} - {mode.description}",
             )
             for mode in HolidayMode
         ]
-        
-        # 构建假期类型说明
-        sections_text = self._build_sections_text()
-        
-        # 表单架构
-        schema = vol.Schema({
-            vol.Required("holiday_mode", default=current_mode): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=mode_options,
-                    mode="dropdown",
-                )
-            ),
-            vol.Required("yaml_content", default=self._yaml_content): selector.TemplateSelector(),
-        })
-        
+
+        action_options = [
+            selector.SelectOptionDict(value="save_only", label="💾 保存模式"),
+            selector.SelectOptionDict(value="advanced", label="⚙️ 高级：直接编辑数据"),
+        ]
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    "holiday_mode", default=current_mode
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=mode_options, mode="dropdown")
+                ),
+                vol.Required("action", default="save_only"): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=action_options, mode="list")
+                ),
+            }
+        )
+
         return self.async_show_form(
             step_id="init",
             data_schema=schema,
+            errors={},
+            description_placeholders={"stats": stats},
+        )
+
+    def _build_stats_text(self) -> str:
+        """构建当前假期统计文本"""
+        h_count = len(self._data.get("holidays", []))
+        c_count = len(self._data.get("customdays", []))
+        s_count = len(self._data.get("studentdays", []))
+        return (
+            f"📅 **日常增删请用日历面板**（点击日期添加 / 点事件删除）\n"
+            f"  • 先在 Lovelace 的「假期类型」下拉里选好类型，再去日历点击添加\n"
+            f"  • 类型选项：自定义 / 法定（含调休）/ 学生\n"
+            f"📦 **当前统计**：法定 {h_count} / 自定义 {c_count} / 学生 {s_count}"
+        )
+
+    # ---------- 高级：JSON 编辑 ----------
+
+    async def async_step_advanced(
+        self, user_input: Optional[Dict[str, Any]] = None
+    ):
+        """高级：直接编辑 JSON 数据"""
+        errors: Dict[str, str] = {}
+
+        current_json = "{}"
+        try:
+            if self._data:
+                current_json = json.dumps(
+                    self._data, ensure_ascii=False, indent=2
+                )
+        except Exception as e:
+            _LOGGER.error("序列化数据失败: %s", e)
+            current_json = "{}"
+
+        if user_input is not None:
+            json_content = (user_input.get("json_content") or "").strip()
+            if not json_content:
+                errors["json_content"] = "empty_content"
+            else:
+                try:
+                    parsed = json.loads(json_content)
+                    if not isinstance(parsed, dict):
+                        errors["json_content"] = "invalid_json_structure"
+                    else:
+                        parsed.setdefault("holidays", [])
+                        parsed.setdefault("customdays", [])
+                        parsed.setdefault("studentdays", [])
+                        for key in ("holidays", "customdays", "studentdays"):
+                            if not isinstance(parsed[key], list):
+                                errors["json_content"] = "invalid_json_structure"
+                                break
+
+                        if not errors:
+                            if await self._save_data(parsed):
+                                mode_value = user_input.get(
+                                    "holiday_mode",
+                                    self._config_entry.data.get(
+                                        "holiday_mode",
+                                        HolidayMode.STANDARD.value,
+                                    ),
+                                )
+                                await self._reload_integration(mode_value)
+                                return self.async_create_entry(title="", data={})
+                            else:
+                                errors["json_content"] = "save_failed"
+
+                except json.JSONDecodeError as e:
+                    _LOGGER.error("JSON 解析错误: %s", e)
+                    errors["json_content"] = "invalid_json"
+
+        mode_options = [
+            selector.SelectOptionDict(
+                value=mode.value,
+                label=f"{mode.icon} {mode.display_name} - {mode.description}",
+            )
+            for mode in HolidayMode
+        ]
+
+        current_mode = self._config_entry.data.get(
+            "holiday_mode", HolidayMode.STANDARD.value
+        )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    "holiday_mode", default=current_mode
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(options=mode_options, mode="dropdown")
+                ),
+                vol.Required("json_content", default=current_json): selector.TemplateSelector(),
+            }
+        )
+
+        return self.async_show_form(
+            step_id="advanced",
+            data_schema=schema,
             errors=errors,
-            description_placeholders={"sections": sections_text}
+            description_placeholders={
+                "tips": "数据存储在 HA 的 `.storage/` 目录（JSON 格式），编辑后自动保存。",
+            },
         )

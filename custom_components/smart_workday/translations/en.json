@@ -1,11 +1,12 @@
 {
     "title": "Smart Workday",
-    
+
     "config": {
         "title": "Configure Smart Workday",
         "step": {
             "user": {
                 "title": "Configure Smart Workday",
+                "description": "Set integration name and holiday mode",
                 "data": {
                     "name": "Integration Name",
                     "holiday_mode": "Holiday Mode"
@@ -13,59 +14,47 @@
             }
         }
     },
-    
+
     "options": {
         "title": "Smart Workday Options",
         "step": {
             "init": {
-                "title": "Smart Workday Options",
-                "description": "{sections}",
+                "title": "Holiday Management",
+                "description": "{stats}",
                 "data": {
                     "holiday_mode": "Holiday Mode",
-                    "yaml_content": "YAML Configuration"
+                    "action": "Select Action"
+                }
+            },
+            "advanced": {
+                "title": "Advanced: Edit Data",
+                "description": "{tips}",
+                "data": {
+                    "holiday_mode": "Holiday Mode",
+                    "json_content": "JSON Data"
                 },
                 "errors": {
-                    "invalid_yaml": "❌ YAML syntax error",
-                    "invalid_yaml_structure": "❌ Invalid YAML structure, must contain holidays, customdays, studentdays sections",
-                    "save_failed": "❌ Save failed, check permissions",
-                    "empty_content": "❌ Content cannot be empty",
-                    "unknown_error": "❌ Unknown error, check logs"
+                    "invalid_json": "❌ JSON syntax error",
+                    "invalid_json_structure": "❌ Invalid JSON structure, must contain holidays, customdays, studentdays fields",
+                    "save_failed": "❌ Save failed",
+                    "empty_content": "❌ Content cannot be empty"
                 }
             }
         }
     },
-    
-    "sections": {
-        "mode_description": {
-            "title": "Holiday Mode Description",
-            "content": "Please select your holiday calculation mode:\n\n• 📅 **Standard Mode**: National holidays + Custom holidays\n• 🌟 **Custom Mode**: Only custom holidays"
-        },
-        "holiday_types": {
-            "title": "Holiday Types",
-            "content": "The configuration file supports three types:\n\n• **holidays**: National holidays (including workday adjustments) - Effective in Standard mode\n• **customdays**: Custom holidays - Effective in all modes\n• **studentdays**: Student holidays - Independent sensor"
-        }
-    },
-    
+
     "mode_names": {
         "standard": "Standard Mode",
         "custom": "Custom Mode"
     },
-    
+
     "mode_icons": {
         "standard": "📅",
         "custom": "🌟"
     },
-    
+
     "mode_descriptions": {
         "standard": "National holidays + Custom holidays",
         "custom": "Only custom holidays"
-    },
-    
-    "state_names": {
-        "workday": "Workday",
-        "workday_special": "Workday (Special)",
-        "holiday": "Holiday",
-        "holiday_custom": "Custom Holiday",
-        "weekend": "Weekend"
     }
 }
