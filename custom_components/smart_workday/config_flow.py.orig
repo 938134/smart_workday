@@ -1,22 +1,11 @@
-"""Config flow for Smart Workday.
-
-参照 HA 官方 holiday 集成的模式重写：
-- 使用 OptionsFlowWithReload 自动处理 reload
-- 使用 domain=DOMAIN 关键字参数声明 domain
-- 使用 @staticmethod @callback @override 装饰链
-- OptionsFlow.__init__ 通过 super() 让基类自动设置 self.config_entry
-"""
-
-from __future__ import annotations
+"""Config flow for Smart Workday."""
 
 import json
 import logging
-from typing import Any, Dict, List, Optional, override
+from typing import Any, Dict, List, Optional
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry, OptionsFlowWithReload
-from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.storage import Store
 
@@ -26,41 +15,12 @@ from .coordinator import STORAGE_VERSION
 _LOGGER = logging.getLogger(__name__)
 
 
-def _build_mode_options() -> List[selector.SelectOptionDict]:
-    """构建假期模式选项列表"""
-    return [
-        selector.SelectOptionDict(
-            value=mode.value,
-            label=f"{mode.icon} {mode.display_name} - {mode.description}",
-        )
-        for mode in HolidayMode
-    ]
-
-
-def _build_action_options() -> List[selector.SelectOptionDict]:
-    """构建操作选项列表"""
-    return [
-        selector.SelectOptionDict(value="save_only", label="💾 保存模式"),
-        selector.SelectOptionDict(value="advanced", label="⚙️ 高级：直接编辑数据"),
-    ]
-
-
 class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Smart Workday 配置流 - 处理首次添加集成"""
+    """配置流 - 处理首次添加集成"""
 
     VERSION = 1
 
-    @staticmethod
-    @callback
-    @override
-    def async_get_options_flow(config_entry: ConfigEntry):
-        """获取选项流"""
-        return SmartWorkdayOptionsFlow(config_entry)
-
-    @override
-    async def async_step_user(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_user(self, user_input: Optional[Dict[str, Any]] = None):
         """第一步：输入名称和选择模式"""
         if user_input is not None:
             return self.async_create_entry(
@@ -73,6 +33,14 @@ class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 },
             )
 
+        mode_options = [
+            selector.SelectOptionDict(
+                value=mode.value,
+                label=f"{mode.icon} {mode.display_name} - {mode.description}",
+            )
+            for mode in HolidayMode
+        ]
+
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema(
@@ -82,31 +50,33 @@ class SmartWorkdayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "holiday_mode", default=HolidayMode.STANDARD.value
                     ): selector.SelectSelector(
                         selector.SelectSelectorConfig(
-                            options=_build_mode_options(), mode="dropdown"
+                            options=mode_options, mode="dropdown"
                         )
                     ),
                 }
             ),
         )
 
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        """获取选项流"""
+        return SmartWorkdayOptionsFlow(config_entry)
 
-class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
-    """选项流 - 主菜单 + 高级 JSON 编辑
 
-    继承 OptionsFlowWithReload：调用 async_create_entry 时 HA 会自动 reload entry
-    """
+class SmartWorkdayOptionsFlow(config_entries.OptionsFlow):
+    """选项流 - 主菜单 + 高级 JSON 编辑"""
 
-    def __init__(self, config_entry: ConfigEntry):
-        """初始化选项流 - 必须调用 super().__init__() 让基类设置 self.config_entry"""
-        super().__init__(config_entry)
+    def __init__(self, config_entry):
+        self._config_entry = config_entry
         self._data: Dict[str, List] = {}
+        self._pending_mode: str = ""
 
     def _get_store(self) -> Store:
         """获取当前条目的 Store 实例"""
         return Store(
             self.hass,
             STORAGE_VERSION,
-            f"{DOMAIN}.{self.config_entry.entry_id}",
+            f"{DOMAIN}.{self._config_entry.entry_id}",
         )
 
     async def _load_data(self) -> Dict[str, List]:
@@ -140,21 +110,18 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             _LOGGER.error("保存数据失败: %s", e)
             return False
 
-    def _update_entry_mode(self, mode_value: str) -> None:
-        """更新 entry.data 中的假期模式（同步方法，OptionsFlowWithReload 会在
-        async_create_entry 后自动 reload）"""
-        new_data = dict(self.config_entry.data)
+    async def _reload_integration(self, mode_value: str):
+        """更新模式并重载集成"""
+        new_data = dict(self._config_entry.data)
         new_data["holiday_mode"] = mode_value
         self.hass.config_entries.async_update_entry(
-            self.config_entry, data=new_data
+            self._config_entry, data=new_data
         )
+        await self.hass.config_entries.async_reload(self._config_entry.entry_id)
 
     # ---------- 主菜单 ----------
 
-    @override
-    async def async_step_init(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None):
         """主菜单：选模式 + 选操作"""
         if not self._data:
             self._data = await self._load_data()
@@ -164,34 +131,41 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                 "holiday_mode", HolidayMode.STANDARD.value
             )
             action = user_input.get("action", "save_only")
+            self._pending_mode = mode_value
 
             if action == "advanced":
-                return await self.async_step_advanced(
-                    user_input={"holiday_mode": mode_value}
-                )
+                return await self.async_step_advanced()
+            else:
+                await self._reload_integration(mode_value)
+                return self.async_create_entry(title="", data={})
 
-            # 保存模式到 entry.data，OptionsFlowWithReload 自动触发 reload
-            self._update_entry_mode(mode_value)
-            return self.async_create_entry(title="", data={})
-
-        current_mode = self.config_entry.data.get(
+        current_mode = self._config_entry.data.get(
             "holiday_mode", HolidayMode.STANDARD.value
         )
         stats = self._build_stats_text()
+
+        mode_options = [
+            selector.SelectOptionDict(
+                value=mode.value,
+                label=f"{mode.icon} {mode.display_name} - {mode.description}",
+            )
+            for mode in HolidayMode
+        ]
+
+        action_options = [
+            selector.SelectOptionDict(value="save_only", label="💾 保存模式"),
+            selector.SelectOptionDict(value="advanced", label="⚙️ 高级：直接编辑数据"),
+        ]
 
         schema = vol.Schema(
             {
                 vol.Required(
                     "holiday_mode", default=current_mode
                 ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_build_mode_options(), mode="dropdown"
-                    )
+                    selector.SelectSelectorConfig(options=mode_options, mode="dropdown")
                 ),
                 vol.Required("action", default="save_only"): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_build_action_options(), mode="list"
-                    )
+                    selector.SelectSelectorConfig(options=action_options, mode="list")
                 ),
             }
         )
@@ -217,10 +191,9 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
     # ---------- 高级：JSON 编辑 ----------
 
-    @override
     async def async_step_advanced(
         self, user_input: Optional[Dict[str, Any]] = None
-    ) -> config_entries.ConfigFlowResult:
+    ):
         """高级：直接编辑 JSON 数据"""
         errors: Dict[str, str] = {}
 
@@ -256,12 +229,12 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                             if await self._save_data(parsed):
                                 mode_value = user_input.get(
                                     "holiday_mode",
-                                    self.config_entry.data.get(
+                                    self._config_entry.data.get(
                                         "holiday_mode",
                                         HolidayMode.STANDARD.value,
                                     ),
                                 )
-                                self._update_entry_mode(mode_value)
+                                await self._reload_integration(mode_value)
                                 return self.async_create_entry(title="", data={})
                             else:
                                 errors["json_content"] = "save_failed"
@@ -270,7 +243,15 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                     _LOGGER.error("JSON 解析错误: %s", e)
                     errors["json_content"] = "invalid_json"
 
-        current_mode = self.config_entry.data.get(
+        mode_options = [
+            selector.SelectOptionDict(
+                value=mode.value,
+                label=f"{mode.icon} {mode.display_name} - {mode.description}",
+            )
+            for mode in HolidayMode
+        ]
+
+        current_mode = self._config_entry.data.get(
             "holiday_mode", HolidayMode.STANDARD.value
         )
 
@@ -279,9 +260,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
                 vol.Required(
                     "holiday_mode", default=current_mode
                 ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=_build_mode_options(), mode="dropdown"
-                    )
+                    selector.SelectSelectorConfig(options=mode_options, mode="dropdown")
                 ),
                 vol.Required("json_content", default=current_json): selector.TemplateSelector(),
             }
