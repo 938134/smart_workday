@@ -24,10 +24,18 @@ DEFAULT_NAME: Final = "智能工作日"          # 集成显示名称默认值
 DOMAIN_DISPLAY_NAME: Final = "Smart Workday"  # 设备 manufacturer（英文）
 
 # 实体与设备元数据
-CALENDAR_ENTITY_NAME: Final = "假期日历"
 CALENDAR_MODEL: Final = "假期日历"
 SENSOR_MODEL: Final = "工作日传感器"
-CALENDAR_UNIQUE_SUFFIX: Final = "_calendar"
+
+# 3 个独立日历实体名称（用户在 UI 下拉菜单里选哪个日历添加，就是哪个分类）
+CALENDAR_LEGAL_NAME: Final = "法定假期日历"
+CALENDAR_STUDENT_NAME: Final = "学生假期日历"
+CALENDAR_CUSTOM_NAME: Final = "自定义假期日历"
+
+# 日历实体 unique_id 后缀
+CALENDAR_LEGAL_SUFFIX: Final = "_legal"
+CALENDAR_STUDENT_SUFFIX: Final = "_student"
+CALENDAR_CUSTOM_SUFFIX: Final = "_custom"
 
 
 # ============================================================
@@ -73,7 +81,7 @@ SOURCE_TO_CATEGORY: Final = {
     EVENT_SOURCE_CUSTOM: "customdays",
 }
 
-# 日历 UI 手动添加事件时，根据名称关键词推断分类
+# 日历 UI 手动添加事件时，根据名称关键词推断分类（仅法定日历需要，用于区分调休）
 STUDENT_HOLIDAY_KEYWORDS: Final = ("寒假", "暑假", "春假", "秋假", "儿童节", "学生")
 MAKEUP_KEYWORD: Final = "调休"
 

@@ -81,7 +81,8 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
                 "tips": (
                     "⚙️ 输入集成名称、勾选要启用的假期类型。\n"
                     "📅 启用法定假期将自动导入当年国务院通知数据。\n"
-                    "💡 假期条目的增删请通过日历实体完成。"
+                    "💡 假期条目通过日历实体添加（3 个日历：法定/学生/自定义），\n"
+                    "   在哪个日历上添加就归入哪个分类。"
                 ),
             },
         )
@@ -142,6 +143,9 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             f"  • 📅 法定假期：{'✅ 启用' if flags[CONF_ENABLED_LEGAL] else '❌ 禁用'}\n"
             f"  • 🎓 学生假期：{'✅ 启用' if flags[CONF_ENABLED_STUDENT] else '❌ 禁用'}\n"
             f"  • ⭐ 自定义假期：{'✅ 启用' if flags[CONF_ENABLED_CUSTOM] else '❌ 禁用'}\n"
-            "\n💡 假期条目的增删请通过日历实体完成（支持 CREATE/DELETE_EVENT）。\n"
-            "📅 启用法定假期时会自动从国务院通知导入当年数据（仅当节假日列表为空时）。"
+            "\n💡 **添加事件**：在 HA 日历 UI 的下拉菜单里选对应日历添加：\n"
+            "  • 法定假期日历 → 法定假期 / 调休上班日\n"
+            "  • 学生假期日历 → 学生假期\n"
+            "  • 自定义假期日历 → 自定义假期\n"
+            "\n📅 启用法定假期时会自动从国务院通知导入当年数据（仅当节假日列表为空时）。"
         )
