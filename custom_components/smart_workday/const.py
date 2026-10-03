@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.8.0"
+VERSION: Final = "2.9.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -37,10 +37,6 @@ CONF_ENABLED_LEGAL: Final = "enabled_legal"
 CONF_ENABLED_STUDENT: Final = "enabled_student"
 CONF_ENABLED_CUSTOM: Final = "enabled_custom"
 CONF_NAME: Final = "name"
-
-# ConfigFlow / OptionsFlow 导入标记
-CONF_IMPORT_LEGAL: Final = "import_legal"
-CONF_IMPORT_LEGAL_YEAR: Final = "import_legal_year"
 
 # 三个总开关 → 中文标签
 ENABLED_LABELS: Final = {

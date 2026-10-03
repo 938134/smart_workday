@@ -11,9 +11,7 @@
                     "name": "集成名称",
                     "enabled_legal": "📅 启用法定假期",
                     "enabled_student": "🎓 启用学生假期",
-                    "enabled_custom": "⭐ 启用自定义假期",
-                    "import_legal": "📥 立即从国务院通知导入法定假期",
-                    "import_legal_year": "导入年份"
+                    "enabled_custom": "⭐ 启用自定义假期"
                 }
             }
         }
@@ -28,9 +26,7 @@
                 "data": {
                     "enabled_legal": "📅 启用法定假期",
                     "enabled_student": "🎓 启用学生假期",
-                    "enabled_custom": "⭐ 启用自定义假期",
-                    "import_legal": "📥 从国务院通知导入（覆盖当前法定假期）",
-                    "import_legal_year": "导入年份"
+                    "enabled_custom": "⭐ 启用自定义假期"
                 }
             }
         }

@@ -3,6 +3,7 @@
 import logging
 from datetime import datetime, timedelta
 from typing import List, Optional
+from zoneinfo import ZoneInfo
 
 from homeassistant.components.calendar import (
     CalendarEntity,
@@ -24,6 +25,9 @@ from .const import (
     CALENDAR_ENTITY_NAME,
     CALENDAR_MODEL,
     CALENDAR_UNIQUE_SUFFIX,
+    CONF_ENABLED_LEGAL,
+    CONF_ENABLED_STUDENT,
+    CONF_ENABLED_CUSTOM,
     EVENT_SOURCE_LEGAL,
     EVENT_SOURCE_STUDENT,
     EVENT_SOURCE_CUSTOM,
@@ -56,40 +60,63 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     @property
     def _enabled_flags(self) -> dict:
-        """从 data_manager 读取顶层开关（默认 True 向后兼容）"""
-        return getattr(
+        """从 data_manager 读取顶层开关（默认 True 向后兼容）
+
+        返回简化键名 {"legal","student","custom"} 便于日历内部使用。
+        """
+        raw = getattr(
             self.coordinator.data_manager,
             "_enabled_flags",
-            {"legal": True, "student": True, "custom": True},
+            {},
         )
+        return {
+            "legal": bool(raw.get(CONF_ENABLED_LEGAL, True)),
+            "student": bool(raw.get(CONF_ENABLED_STUDENT, True)),
+            "custom": bool(raw.get(CONF_ENABLED_CUSTOM, True)),
+        }
+
+    def _get_tz(self) -> datetime.tzinfo:
+        """获取 HA 系统时区"""
+        tz_name = self.hass.config.time_zone
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            return ZoneInfo("UTC")
 
     def _create_event(self, start_date, end_date, name, uid: str = "",
-                      source: str = "") -> CalendarEvent:
+                      source: str = "", tz: Optional[datetime.tzinfo] = None) -> CalendarEvent:
         """创建日历事件"""
         # 解析开始日期
         if isinstance(start_date, str):
-            parsed = dt.parse_date(start_date)
-            start = parsed if parsed else datetime.strptime(start_date, "%Y-%m-%d").date()
+            try:
+                start = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                start = datetime.now().date()
         else:
-            start = start_date
+            start = start_date if hasattr(start_date, "year") else datetime.now().date()
 
         # 解析结束日期（单天事件 end_date 可能为 None 或等于 start）
         if end_date is None or end_date == start_date:
             end = start
         else:
             if isinstance(end_date, str):
-                parsed = dt.parse_date(end_date)
-                end = parsed if parsed else datetime.strptime(end_date, "%Y-%m-%d").date()
+                try:
+                    end = datetime.strptime(end_date[:10], "%Y-%m-%d").date()
+                except (ValueError, TypeError):
+                    end = start
             else:
                 end = end_date
 
         event_start = datetime.combine(start, datetime.min.time())
         event_end = datetime.combine(end + timedelta(days=1), datetime.min.time())
 
+        # 补齐时区（HA CalendarEvent 要求 tz-aware datetime）
+        if tz is None:
+            tz = self._get_tz()
         if event_start.tzinfo is None:
-            event_start = event_start.replace(tzinfo=dt.DEFAULT_TIME_ZONE)
+            event_start = event_start.replace(tzinfo=tz)
         if event_end.tzinfo is None:
-            event_end = event_end.replace(tzinfo=dt.DEFAULT_TIME_ZONE)
+            event_end = event_end.replace(tzinfo=tz)
 
         # 描述标注类型（用于日历 UI 显示来源 + 删除时推断分类）
         if MAKEUP_KEYWORD in name:
@@ -110,21 +137,27 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         events = []
         data = await self.coordinator.data_manager.get_calendar_events()
         flags = self._enabled_flags
+        tz = self._get_tz()
 
         # 法定假期
         if flags.get("legal"):
             for item in data.get("holidays", []):
+                if not isinstance(item, dict):
+                    continue
                 events.append(self._create_event(
                     item.get("date") or item.get("start"),
                     item.get("date") or item.get("end"),
                     item.get("name", "法定假期"),
                     item.get("uid", ""),
                     EVENT_SOURCE_LEGAL,
+                    tz,
                 ))
 
         # 学生假期（条目 enabled 过滤）
         if flags.get("student"):
             for item in data.get("studentdays", []):
+                if not isinstance(item, dict):
+                    continue
                 if not item.get("enabled", True):
                     continue
                 events.append(self._create_event(
@@ -133,17 +166,21 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
                     item.get("name", "学生假期"),
                     item.get("uid", ""),
                     EVENT_SOURCE_STUDENT,
+                    tz,
                 ))
 
         # 自定义假期
         if flags.get("custom"):
             for item in data.get("customdays", []):
+                if not isinstance(item, dict):
+                    continue
                 events.append(self._create_event(
                     item.get("date") or item.get("start"),
                     item.get("date") or item.get("end"),
                     item.get("name", "自定义假期"),
                     item.get("uid", ""),
                     EVENT_SOURCE_CUSTOM,
+                    tz,
                 ))
 
         _LOGGER.debug("生成日历事件: %d 个", len(events))
@@ -151,10 +188,11 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     async def async_get_events(self, hass, start_date, end_date) -> List[CalendarEvent]:
         """获取时间段内的事件"""
+        tz = self._get_tz()
         if start_date.tzinfo is None:
-            start_date = start_date.replace(tzinfo=dt.DEFAULT_TIME_ZONE)
+            start_date = start_date.replace(tzinfo=tz)
         if end_date.tzinfo is None:
-            end_date = end_date.replace(tzinfo=dt.DEFAULT_TIME_ZONE)
+            end_date = end_date.replace(tzinfo=tz)
 
         all_events = await self._generate_events()
         return [

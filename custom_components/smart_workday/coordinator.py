@@ -96,14 +96,19 @@ class SmartWorkdayDataManager:
             data.setdefault("customdays", [])
             data.setdefault("studentdays", [])
 
-            # 补全 uid（向后兼容旧数据）
+            # 清理无效条目 + 补全 uid（向后兼容旧数据）
             need_save = False
             for cat in ("holidays", "customdays", "studentdays"):
                 if not isinstance(data[cat], list):
                     data[cat] = []
-                for item in data[cat]:
-                    if not isinstance(item, dict):
-                        continue
+                # 移除非 dict 项（历史 bug 或手工编辑导致的脏数据）
+                cleaned = [item for item in data[cat] if isinstance(item, dict)]
+                removed = len(data[cat]) - len(cleaned)
+                if removed > 0:
+                    _LOGGER.warning("清理 %s 中 %d 条无效数据", cat, removed)
+                    data[cat] = cleaned
+                    need_save = True
+                for item in cleaned:
                     if "uid" not in item:
                         item["uid"] = str(uuid.uuid4())[:8]
                         need_save = True
@@ -194,6 +199,8 @@ class SmartWorkdayDataManager:
         # 法定假期（顶层开关控制）
         if self._enabled_flags.get(CONF_ENABLED_LEGAL, True):
             for item in data.get("holidays", []):
+                if not isinstance(item, dict):
+                    continue
                 if is_match(check_date, item):
                     events.append({
                         "name": item.get("name", "节假日"),
@@ -203,6 +210,8 @@ class SmartWorkdayDataManager:
         # 自定义假期（顶层开关控制）
         if self._enabled_flags.get(CONF_ENABLED_CUSTOM, True):
             for item in data.get("customdays", []):
+                if not isinstance(item, dict):
+                    continue
                 if is_match(check_date, item):
                     events.append({
                         "name": item.get("name", "自定义假期"),
@@ -212,6 +221,8 @@ class SmartWorkdayDataManager:
         # 学生假期（顶层开关 + 条目 enabled 双重控制）
         if self._enabled_flags.get(CONF_ENABLED_STUDENT, True):
             for item in data.get("studentdays", []):
+                if not isinstance(item, dict):
+                    continue
                 if not item.get("enabled", True):
                     continue
                 if is_match(check_date, item):

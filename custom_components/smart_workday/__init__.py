@@ -13,7 +13,6 @@ from .const import (
     STORAGE_VERSION,
     DEFAULT_LEGAL_YEAR,
     CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM,
-    CONF_IMPORT_LEGAL, CONF_IMPORT_LEGAL_YEAR,
     LEGAL_HOLIDAY_PRESETS,
 )
 from .coordinator import (
@@ -57,6 +56,40 @@ async def _migrate_yaml_to_store(hass: HomeAssistant, store: Store, entry: Confi
         _LOGGER.error("迁移 YAML 数据失败: %s", e)
 
 
+async def _auto_import_legal_if_empty(hass: HomeAssistant, store: Store, entry: ConfigEntry):
+    """启用法定假期开关且当前节假日数据为空时，自动从国务院通知预置数据导入
+
+    - 只在节假日列表为空时导入（避免覆盖用户手工维护的数据）
+    - 使用 DEFAULT_LEGAL_YEAR（根据当前年份自动计算）
+    - 每次重新加载集成都会检查，因此用户清空后重新启用会重新导入
+    """
+    try:
+        data = await store.async_load()
+        if not isinstance(data, dict):
+            data = {}
+        if data.get("holidays"):
+            return  # 已有数据，不覆盖
+
+        import_year = DEFAULT_LEGAL_YEAR
+        presets = LEGAL_HOLIDAY_PRESETS.get(import_year, [])
+        if not presets:
+            return
+
+        import uuid
+        data.setdefault("holidays", [])
+        data.setdefault("customdays", [])
+        data.setdefault("studentdays", [])
+        data["holidays"] = [
+            {"name": item["name"], "date": item["date"], "uid": str(uuid.uuid4())[:8]}
+            for item in presets
+        ]
+        await store.async_save(data)
+        _LOGGER.info("已自动导入 %d 条 %d 年国务院法定假期", len(presets), import_year)
+
+    except Exception as e:
+        _LOGGER.error("自动导入法定假期失败: %s", e)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """设置配置条目"""
     _LOGGER.debug("设置 %s: %s", DOMAIN_DISPLAY_NAME, entry.entry_id)
@@ -77,28 +110,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 迁移旧版 YAML 数据（仅首次）
     await _migrate_yaml_to_store(hass, store, entry)
 
-    # 处理 ConfigFlow 一步导入标记：如果用户勾选了"立即导入"，从预置数据导入法定假期
-    if new_data.get(CONF_IMPORT_LEGAL):
-        import_year = new_data.get(CONF_IMPORT_LEGAL_YEAR, DEFAULT_LEGAL_YEAR)
-        presets = LEGAL_HOLIDAY_PRESETS.get(
-            import_year, LEGAL_HOLIDAY_PRESETS.get(DEFAULT_LEGAL_YEAR, [])
-        )
-        if presets:
-            import uuid
-            existing = await store.async_load() or {}
-            existing.setdefault("holidays", [])
-            existing.setdefault("customdays", [])
-            existing.setdefault("studentdays", [])
-            existing["holidays"] = [
-                {"name": item["name"], "date": item["date"], "uid": str(uuid.uuid4())[:8]}
-                for item in presets
-            ]
-            await store.async_save(existing)
-            _LOGGER.info("已从预置数据导入 %d 条法定假期（%d 年）", len(presets), import_year)
-        # 清除导入标记，避免下次重载重复导入
-        new_data.pop(CONF_IMPORT_LEGAL, None)
-        new_data.pop(CONF_IMPORT_LEGAL_YEAR, None)
-        hass.config_entries.async_update_entry(entry, data=new_data)
+    # 自动导入法定假期：启用 legal 且当前无节假日数据时，自动从国务院通知预置数据导入
+    if new_data.get(CONF_ENABLED_LEGAL, True):
+        await _auto_import_legal_if_empty(hass, store, entry)
 
     # 初始化数据管理器
     data_manager = SmartWorkdayDataManager(hass, store)
