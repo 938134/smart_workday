@@ -11,104 +11,9 @@
                     "name": "Integration Name",
                     "enabled_legal": "📅 Enable National Holidays",
                     "enabled_student": "🎓 Enable Student Holidays",
-                    "enabled_custom": "⭐ Enable Custom Holidays"
-                }
-            },
-            "legal": {
-                "title": "📅 National Holidays",
-                "description": "Current national holidays: **{count}** entries:\n\n{list}\n\nSelect an action:",
-                "data": { "action": "Select action" }
-            },
-            "legal_import": {
-                "title": "Import National Holidays from Government Notice",
-                "description": "{warning}",
-                "data": {
-                    "year": "Select year",
-                    "confirm": "Confirm"
-                },
-                "errors": { "save_failed": "❌ Save failed" }
-            },
-            "legal_add": {
-                "title": "Add National Holiday",
-                "description": "Enter name and date. For makeup workdays, select '💼 Makeup Workday'.",
-                "data": {
-                    "name": "Holiday name",
-                    "date": "Date",
-                    "type": "Type"
-                },
-                "errors": {
-                    "missing_required": "❌ Name and date are required",
-                    "save_failed": "❌ Save failed"
-                }
-            },
-            "legal_delete": {
-                "title": "Delete National Holiday",
-                "description": "Select the entry to delete:",
-                "data": { "uid": "Select entry" }
-            },
-            "legal_clear": {
-                "title": "Clear National Holidays",
-                "description": "{warning}",
-                "data": { "confirm": "Confirm" }
-            },
-            "student": {
-                "title": "🎓 Student Holidays",
-                "description": "Current configuration:\n\n{current}\n\nToggle which holidays to enable and set their dates.",
-                "data": {
-                    "enable_winter": "Enable Winter Break",
-                    "winter_start": "Winter Break start",
-                    "winter_end": "Winter Break end",
-                    "enable_summer": "Enable Summer Break",
-                    "summer_start": "Summer Break start",
-                    "summer_end": "Summer Break end",
-                    "enable_spring": "Enable Spring Break",
-                    "spring_start": "Spring Break start",
-                    "spring_end": "Spring Break end",
-                    "enable_autumn": "Enable Autumn Break",
-                    "autumn_start": "Autumn Break start",
-                    "autumn_end": "Autumn Break end",
-                    "enable_children": "Enable Children's Day",
-                    "children_date": "Children's Day date"
-                },
-                "errors": { "save_failed": "❌ Save failed" }
-            },
-            "custom": {
-                "title": "⭐ Custom Holidays",
-                "description": "Current custom holidays: **{count}** entries:\n\n{list}\n\nSelect an action:",
-                "data": { "action": "Select action" }
-            },
-            "custom_add": {
-                "title": "Add Custom Holiday",
-                "description": "Enter name and date. Fill 'end date' for a range, leave empty for single day.",
-                "data": {
-                    "name": "Holiday name",
-                    "date": "Start date",
-                    "end": "End date (optional)"
-                },
-                "errors": {
-                    "missing_required": "❌ Name and start date are required",
-                    "save_failed": "❌ Save failed"
-                }
-            },
-            "custom_delete": {
-                "title": "Delete Custom Holiday",
-                "description": "Select the entry to delete:",
-                "data": { "uid": "Select entry" }
-            },
-            "custom_clear": {
-                "title": "Clear Custom Holidays",
-                "description": "{warning}",
-                "data": { "confirm": "Confirm" }
-            },
-            "advanced": {
-                "title": "📝 Advanced: JSON Editor",
-                "description": "{tips}",
-                "data": { "json_content": "JSON data" },
-                "errors": {
-                    "invalid_json": "❌ Invalid JSON syntax",
-                    "invalid_json_structure": "❌ JSON structure invalid (needs holidays, customdays, studentdays)",
-                    "save_failed": "❌ Save failed",
-                    "empty_content": "❌ Content cannot be empty"
+                    "enabled_custom": "⭐ Enable Custom Holidays",
+                    "import_legal": "📥 Import National Holidays from Government Notice",
+                    "import_legal_year": "Import Year"
                 }
             }
         }
@@ -118,114 +23,14 @@
         "title": "Smart Workday Options",
         "step": {
             "init": {
-                "title": "Smart Workday Options (Step 1)",
+                "title": "Smart Workday Options",
                 "description": "{tips}",
                 "data": {
                     "enabled_legal": "📅 Enable National Holidays",
                     "enabled_student": "🎓 Enable Student Holidays",
-                    "enabled_custom": "⭐ Enable Custom Holidays"
-                }
-            },
-            "route": {
-                "title": "Select category to edit (Step 2)",
-                "description": "{stats}\n\n💡 Select a category to edit, or return to finish.",
-                "data": { "action": "Select action" }
-            },
-            "legal": {
-                "title": "📅 National Holidays",
-                "description": "Current national holidays: **{count}** entries:\n\n{list}\n\nSelect an action:",
-                "data": { "action": "Select action" }
-            },
-            "legal_import": {
-                "title": "Import National Holidays from Government Notice",
-                "description": "{warning}",
-                "data": {
-                    "year": "Select year",
-                    "confirm": "Confirm"
-                },
-                "errors": { "save_failed": "❌ Save failed" }
-            },
-            "legal_add": {
-                "title": "Add National Holiday",
-                "description": "Enter name and date. For makeup workdays, select '💼 Makeup Workday'.",
-                "data": {
-                    "name": "Holiday name",
-                    "date": "Date",
-                    "type": "Type"
-                },
-                "errors": {
-                    "missing_required": "❌ Name and date are required",
-                    "save_failed": "❌ Save failed"
-                }
-            },
-            "legal_delete": {
-                "title": "Delete National Holiday",
-                "description": "Select the entry to delete:",
-                "data": { "uid": "Select entry" }
-            },
-            "legal_clear": {
-                "title": "Clear National Holidays",
-                "description": "{warning}",
-                "data": { "confirm": "Confirm" }
-            },
-            "student": {
-                "title": "🎓 Student Holidays",
-                "description": "Current configuration:\n\n{current}\n\nToggle which holidays to enable and set their dates.",
-                "data": {
-                    "enable_winter": "Enable Winter Break",
-                    "winter_start": "Winter Break start",
-                    "winter_end": "Winter Break end",
-                    "enable_summer": "Enable Summer Break",
-                    "summer_start": "Summer Break start",
-                    "summer_end": "Summer Break end",
-                    "enable_spring": "Enable Spring Break",
-                    "spring_start": "Spring Break start",
-                    "spring_end": "Spring Break end",
-                    "enable_autumn": "Enable Autumn Break",
-                    "autumn_start": "Autumn Break start",
-                    "autumn_end": "Autumn Break end",
-                    "enable_children": "Enable Children's Day",
-                    "children_date": "Children's Day date"
-                },
-                "errors": { "save_failed": "❌ Save failed" }
-            },
-            "custom": {
-                "title": "⭐ Custom Holidays",
-                "description": "Current custom holidays: **{count}** entries:\n\n{list}\n\nSelect an action:",
-                "data": { "action": "Select action" }
-            },
-            "custom_add": {
-                "title": "Add Custom Holiday",
-                "description": "Enter name and date. Fill 'end date' for a range, leave empty for single day.",
-                "data": {
-                    "name": "Holiday name",
-                    "date": "Start date",
-                    "end": "End date (optional)"
-                },
-                "errors": {
-                    "missing_required": "❌ Name and start date are required",
-                    "save_failed": "❌ Save failed"
-                }
-            },
-            "custom_delete": {
-                "title": "Delete Custom Holiday",
-                "description": "Select the entry to delete:",
-                "data": { "uid": "Select entry" }
-            },
-            "custom_clear": {
-                "title": "Clear Custom Holidays",
-                "description": "{warning}",
-                "data": { "confirm": "Confirm" }
-            },
-            "advanced": {
-                "title": "📝 Advanced: JSON Editor",
-                "description": "{tips}",
-                "data": { "json_content": "JSON data" },
-                "errors": {
-                    "invalid_json": "❌ Invalid JSON syntax",
-                    "invalid_json_structure": "❌ JSON structure invalid (needs holidays, customdays, studentdays)",
-                    "save_failed": "❌ Save failed",
-                    "empty_content": "❌ Content cannot be empty"
+                    "enabled_custom": "⭐ Enable Custom Holidays",
+                    "import_legal": "📥 Import from Government Notice (overwrite current)",
+                    "import_legal_year": "Import Year"
                 }
             }
         }

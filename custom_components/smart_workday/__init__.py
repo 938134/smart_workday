@@ -9,11 +9,15 @@ from homeassistant.helpers.storage import Store
 
 from .const import (
     DOMAIN,
+    DOMAIN_DISPLAY_NAME,
+    STORAGE_VERSION,
+    DEFAULT_LEGAL_YEAR,
     CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM,
+    CONF_IMPORT_LEGAL, CONF_IMPORT_LEGAL_YEAR,
+    LEGAL_HOLIDAY_PRESETS,
 )
 from .coordinator import (
     SmartWorkdayDataManager, SmartWorkdayCoordinator,
-    STORAGE_VERSION,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -55,7 +59,7 @@ async def _migrate_yaml_to_store(hass: HomeAssistant, store: Store, entry: Confi
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """设置配置条目"""
-    _LOGGER.debug("设置 Smart Workday: %s", entry.entry_id)
+    _LOGGER.debug("设置 %s: %s", DOMAIN_DISPLAY_NAME, entry.entry_id)
 
     # 确保顶层开关存在（向后兼容：旧版 entry.data 缺字段默认全部启用）
     new_data = dict(entry.data)
@@ -72,6 +76,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 迁移旧版 YAML 数据（仅首次）
     await _migrate_yaml_to_store(hass, store, entry)
+
+    # 处理 ConfigFlow 一步导入标记：如果用户勾选了"立即导入"，从预置数据导入法定假期
+    if new_data.get(CONF_IMPORT_LEGAL):
+        import_year = new_data.get(CONF_IMPORT_LEGAL_YEAR, DEFAULT_LEGAL_YEAR)
+        presets = LEGAL_HOLIDAY_PRESETS.get(
+            import_year, LEGAL_HOLIDAY_PRESETS.get(DEFAULT_LEGAL_YEAR, [])
+        )
+        if presets:
+            import uuid
+            existing = await store.async_load() or {}
+            existing.setdefault("holidays", [])
+            existing.setdefault("customdays", [])
+            existing.setdefault("studentdays", [])
+            existing["holidays"] = [
+                {"name": item["name"], "date": item["date"], "uid": str(uuid.uuid4())[:8]}
+                for item in presets
+            ]
+            await store.async_save(existing)
+            _LOGGER.info("已从预置数据导入 %d 条法定假期（%d 年）", len(presets), import_year)
+        # 清除导入标记，避免下次重载重复导入
+        new_data.pop(CONF_IMPORT_LEGAL, None)
+        new_data.pop(CONF_IMPORT_LEGAL_YEAR, None)
+        hass.config_entries.async_update_entry(entry, data=new_data)
 
     # 初始化数据管理器
     data_manager = SmartWorkdayDataManager(hass, store)
@@ -98,7 +125,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """卸载配置条目"""
-    _LOGGER.debug("卸载 Smart Workday: %s", entry.entry_id)
+    _LOGGER.debug("卸载 %s: %s", DOMAIN_DISPLAY_NAME, entry.entry_id)
 
     if await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)

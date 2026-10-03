@@ -19,11 +19,18 @@ from homeassistant.util import dt
 from .const import (
     DOMAIN,
     VERSION,
+    DEFAULT_NAME,
+    DOMAIN_DISPLAY_NAME,
+    CALENDAR_ENTITY_NAME,
+    CALENDAR_MODEL,
+    CALENDAR_UNIQUE_SUFFIX,
     EVENT_SOURCE_LEGAL,
     EVENT_SOURCE_STUDENT,
     EVENT_SOURCE_CUSTOM,
     EVENT_SOURCE_MAKEUP,
     SOURCE_TO_CATEGORY,
+    STUDENT_HOLIDAY_KEYWORDS,
+    MAKEUP_KEYWORD,
 )
 from .coordinator import SmartWorkdayCoordinator
 
@@ -41,8 +48,8 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     def __init__(self, coordinator: SmartWorkdayCoordinator, device_info: DeviceInfo):
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry_id}_calendar"
-        self._attr_name = "假期日历"
+        self._attr_unique_id = f"{coordinator.entry_id}{CALENDAR_UNIQUE_SUFFIX}"
+        self._attr_name = CALENDAR_ENTITY_NAME
         self._attr_device_info = device_info
         self._attr_sw_version = VERSION
         self._event_list: List[CalendarEvent] = []
@@ -85,7 +92,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             event_end = event_end.replace(tzinfo=dt.DEFAULT_TIME_ZONE)
 
         # 描述标注类型（用于日历 UI 显示来源 + 删除时推断分类）
-        if "调休" in name:
+        if MAKEUP_KEYWORD in name:
             description = EVENT_SOURCE_MAKEUP
         else:
             description = source
@@ -104,13 +111,13 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         data = await self.coordinator.data_manager.get_calendar_events()
         flags = self._enabled_flags
 
-        # 法定节假日
+        # 法定假期
         if flags.get("legal"):
             for item in data.get("holidays", []):
                 events.append(self._create_event(
                     item.get("date") or item.get("start"),
                     item.get("date") or item.get("end"),
-                    item.get("name", "法定节假日"),
+                    item.get("name", "法定假期"),
                     item.get("uid", ""),
                     EVENT_SOURCE_LEGAL,
                 ))
@@ -195,7 +202,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
         # 推断分类：
         # 1) 若 description 匹配已知来源前缀 → 用对应分类
-        # 2) 若名称含"调休" → 法定节假日
+        # 2) 若名称含"调休" → 法定假期
         # 3) 若名称含"学生"或"寒/暑/春/秋/儿童节" → 学生假期
         # 4) 默认归为自定义
         category = None
@@ -204,17 +211,12 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
                 category = cat
                 break
         if category is None:
-            if "调休" in summary:
+            if MAKEUP_KEYWORD in summary:
                 category = "holidays"
-            elif any(kw in summary for kw in ("寒假", "暑假", "春假", "秋假", "儿童节", "学生")):
+            elif any(kw in summary for kw in STUDENT_HOLIDAY_KEYWORDS):
                 category = "studentdays"
             else:
                 category = "customdays"
-
-        # 调休名称自动补后缀
-        if category == "holidays" and "调休" not in summary:
-            # 用户主动添加但没写"调休"，视为普通法定假日（保持原名）
-            pass
 
         dm = self.coordinator.data_manager
         await dm.add_entry(category, summary, start_str, end_str, description)
@@ -253,9 +255,9 @@ async def async_setup_entry(
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.data.get("name", "智能工作日"),
-        manufacturer="Smart Workday",
-        model="假期日历",
+        name=entry.data.get("name", DEFAULT_NAME),
+        manufacturer=DOMAIN_DISPLAY_NAME,
+        model=CALENDAR_MODEL,
         sw_version=VERSION,
     )
 

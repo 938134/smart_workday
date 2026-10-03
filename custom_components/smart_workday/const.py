@@ -1,19 +1,33 @@
 """Constants for Smart Workday.
 
-版本号统一在此维护：所有 Python 模块通过 `from .const import VERSION` 引用，
-manifest.json 需同步更新（两处版本号必须一致，HA 会分别用于 UI 显示和实体元数据）。
+版本号统一在此维护：所有 Python 模块通过 `from .const import VERSION` 引用。
+manifest.json 需手动同步（HA 无法从 const.py 动态读取）。
 """
 
-from enum import Enum
+from datetime import datetime
 from typing import Any, Final, Dict, List
 
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.6.0"
+VERSION: Final = "2.8.0"
 
+# 存储版本号（Store JSON 持久化）
+STORAGE_VERSION: Final = 1
+
+
+# ============================================================
+# 集成标识与默认名称（唯一权威来源，避免各处硬编码）
+# ============================================================
 DOMAIN: Final = "smart_workday"
-DEFAULT_NAME: Final = "智能工作日"
+DEFAULT_NAME: Final = "智能工作日"          # 集成显示名称默认值
+DOMAIN_DISPLAY_NAME: Final = "Smart Workday"  # 设备 manufacturer（英文）
+
+# 实体与设备元数据
+CALENDAR_ENTITY_NAME: Final = "假期日历"
+CALENDAR_MODEL: Final = "假期日历"
+SENSOR_MODEL: Final = "工作日传感器"
+CALENDAR_UNIQUE_SUFFIX: Final = "_calendar"
 
 
 # ============================================================
@@ -24,16 +38,13 @@ CONF_ENABLED_STUDENT: Final = "enabled_student"
 CONF_ENABLED_CUSTOM: Final = "enabled_custom"
 CONF_NAME: Final = "name"
 
-# 三个总开关 → 数据分类键
-ENABLED_TO_CATEGORY: Final = {
-    CONF_ENABLED_LEGAL: "holidays",
-    CONF_ENABLED_STUDENT: "studentdays",
-    CONF_ENABLED_CUSTOM: "customdays",
-}
+# ConfigFlow / OptionsFlow 导入标记
+CONF_IMPORT_LEGAL: Final = "import_legal"
+CONF_IMPORT_LEGAL_YEAR: Final = "import_legal_year"
 
 # 三个总开关 → 中文标签
 ENABLED_LABELS: Final = {
-    CONF_ENABLED_LEGAL: "📅 法定节假日",
+    CONF_ENABLED_LEGAL: "📅 法定假期",
     CONF_ENABLED_STUDENT: "🎓 学生假期",
     CONF_ENABLED_CUSTOM: "⭐ 自定义假期",
 }
@@ -53,7 +64,7 @@ ATTR_IS_CUSTOM_HOLIDAY: Final = "is_custom_holiday"
 # ============================================================
 # 日历事件类型标记（description 前缀，用于单日历 UI 区分来源）
 # ============================================================
-EVENT_SOURCE_LEGAL: Final = "📅 法定节假日"
+EVENT_SOURCE_LEGAL: Final = "📅 法定假期"
 EVENT_SOURCE_STUDENT: Final = "🎓 学生假期"
 EVENT_SOURCE_CUSTOM: Final = "⭐ 自定义假期"
 EVENT_SOURCE_MAKEUP: Final = "💼 调休上班日"
@@ -66,48 +77,13 @@ SOURCE_TO_CATEGORY: Final = {
     EVENT_SOURCE_CUSTOM: "customdays",
 }
 
-
-# ============================================================
-# 学生假期类型（5 项固定类型）
-# ============================================================
-class StudentHolidayType(str, Enum):
-    """学生假期类型 - UI 上 5 个 checkbox 对应"""
-    WINTER = "winter"      # 寒假
-    SUMMER = "summer"      # 暑假
-    SPRING = "spring"      # 春假
-    AUTUMN = "autumn"      # 秋假
-    CHILDREN = "children"  # 儿童节
-
-    @property
-    def display_name(self) -> str:
-        return _STUDENT_HOLIDAY_NAMES[self]
-
-    @property
-    def is_range(self) -> bool:
-        """是否为日期范围（儿童节是单日）"""
-        return self != StudentHolidayType.CHILDREN
-
-
-_STUDENT_HOLIDAY_NAMES: Dict[StudentHolidayType, str] = {
-    StudentHolidayType.WINTER: "寒假",
-    StudentHolidayType.SUMMER: "暑假",
-    StudentHolidayType.SPRING: "春假",
-    StudentHolidayType.AUTUMN: "秋假",
-    StudentHolidayType.CHILDREN: "儿童节",
-}
-
-# 学生假期默认配置（首次导入时的模板）
-STUDENT_HOLIDAY_DEFAULTS: Dict[StudentHolidayType, Dict[str, Any]] = {
-    StudentHolidayType.WINTER:   {"start": "2026-01-25", "end": "2026-02-21", "enabled": True},
-    StudentHolidayType.SUMMER:   {"start": "2026-07-01", "end": "2026-08-31", "enabled": True},
-    StudentHolidayType.SPRING:   {"start": "", "end": "", "enabled": False},
-    StudentHolidayType.AUTUMN:   {"start": "", "end": "", "enabled": False},
-    StudentHolidayType.CHILDREN: {"date": "2026-06-01", "enabled": True},
-}
+# 日历 UI 手动添加事件时，根据名称关键词推断分类
+STUDENT_HOLIDAY_KEYWORDS: Final = ("寒假", "暑假", "春假", "秋假", "儿童节", "学生")
+MAKEUP_KEYWORD: Final = "调休"
 
 
 # ============================================================
-# 预置法定节假日数据（2026 年国务院通知）
+# 预置法定假期数据（国务院通知，按需扩展年份）
 # ============================================================
 LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
     2026: [
@@ -151,6 +127,31 @@ LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
 }
 
 
+def _default_legal_year() -> int:
+    """根据当前年份自动计算默认导入年份。
+
+    优先级：
+    1. 当前年份（若预置数据包含该年）
+    2. 最近可用年份（<= 当前年的最大值）
+    3. 最早的可用年份（所有预置年份都在未来时）
+    4. 当前年份（无预置数据时兜底）
+    """
+    current = datetime.now().year
+    years = sorted(LEGAL_HOLIDAY_PRESETS.keys())
+    if not years:
+        return current
+    if current in years:
+        return current
+    for y in reversed(years):
+        if y <= current:
+            return y
+    return years[0]
+
+
+# 一键导入的默认年份（根据当前年份自动计算，无需硬编码）
+DEFAULT_LEGAL_YEAR: Final = _default_legal_year()
+
+
 # ============================================================
 # 二进制传感器配置（4 个独立 boolean 实体）
 # ============================================================
@@ -162,7 +163,7 @@ BINARY_SENSOR_TYPES: Dict[str, Dict[str, Any]] = {
         "info": True,  # 承载详细信息属性
     },
     ATTR_IS_HOLIDAY: {
-        "name": "法定节假日",
+        "name": "法定假期",
         "icon": "mdi:calendar-star",
         "device_class": None,
     },

@@ -1,7 +1,7 @@
 """Binary Sensor platform for Smart Workday - 4 个独立 boolean 实体.
 
 is_workday         : 是否工作日（含调休上班）
-is_holiday         : 是否法定节假日（不含自定义，不含调休上班）
+is_holiday         : 是否法定假期（不含自定义，不含调休上班）
 is_student_holiday : 是否学生假期（独立标志位，不影响工作日）
 is_custom_holiday  : 是否自定义假期（独立标志位，不影响工作日）
 
@@ -22,6 +22,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     DOMAIN,
     VERSION,
+    DEFAULT_NAME,
+    DOMAIN_DISPLAY_NAME,
+    SENSOR_MODEL,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
@@ -102,9 +105,9 @@ async def async_setup_entry(
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.data.get("name", "智能工作日"),
-        manufacturer="Smart Workday",
-        model="工作日传感器",
+        name=entry.data.get("name", DEFAULT_NAME),
+        manufacturer=DOMAIN_DISPLAY_NAME,
+        model=SENSOR_MODEL,
         sw_version=VERSION,
     )
 

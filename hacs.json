@@ -1,6 +1,6 @@
 {
   "name": "智能工作日",
   "render_readme": true,
-  "homeassistant": "2024.1.0",
+  "homeassistant": "2023.9.0",
   "country": "CN"
 }

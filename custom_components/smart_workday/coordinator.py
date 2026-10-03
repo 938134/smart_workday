@@ -1,7 +1,7 @@
 """Coordinator for Smart Workday - 共享数据管理（Store 持久化 + 日期分析）。
 
 判定逻辑（v2.6.0，简化）：
-- is_holiday         = 法定节假日(非调休)                       只算法定，自定义不算
+- is_holiday         = 法定假期(非调休)                       只算法定，自定义不算
 - is_special_workday = 调休上班日
 - is_workday         = is_special_workday OR (非自然周末 AND 非 is_holiday)
 - is_weekend         = 自然周末 AND 非 is_special_workday        可与 is_holiday 并列 True
@@ -24,6 +24,7 @@ from homeassistant.util import dt
 
 from .const import (
     DOMAIN,
+    STORAGE_VERSION,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
@@ -34,11 +35,11 @@ from .const import (
     CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
     WEEKDAY_NAMES,
+    DOMAIN_DISPLAY_NAME,
 )
 
 _LOGGER = logging.getLogger(__name__)
 SCAN_INTERVAL = timedelta(minutes=60)
-STORAGE_VERSION = 1
 
 
 @dataclass
@@ -190,7 +191,7 @@ class SmartWorkdayDataManager:
                 _LOGGER.debug("日期匹配错误: %s", e)
             return False
 
-        # 法定节假日（顶层开关控制）
+        # 法定假期（顶层开关控制）
         if self._enabled_flags.get(CONF_ENABLED_LEGAL, True):
             for item in data.get("holidays", []):
                 if is_match(check_date, item):
@@ -224,10 +225,10 @@ class SmartWorkdayDataManager:
     def analyze_day(self, today: date, events: List[Dict]) -> DayInfo:
         """分析一天的状态 - v2.6.0 简化规则：
 
-        - 以「双休 + 法定节假日」为主：工作日/节假日/周末由这三个决定
+        - 以「双休 + 法定假期」为主：工作日/节假日/周末由这三个决定
         - 学生假期、自定义假期为独立 boolean 标志位，不影响工作日判定
         - 调休上班日（special）优先级最高：即使周末也算工作日
-        - 法定节假日 + 周六同天：is_holiday=True 且 is_weekend=True（并列）
+        - 法定假期 + 周六同天：is_holiday=True 且 is_weekend=True（并列）
         """
         flags = {"holiday": False, "special": False, "custom": False, "student": False}
         event_names = []
@@ -246,13 +247,13 @@ class SmartWorkdayDataManager:
         # 自然周末（周六/周日）
         natural_weekend = today.weekday() >= 5
 
-        # 节假日：只算法定节假日（非调休）；自定义假期不影响这里
+        # 节假日：只算法定假期（非调休）；自定义假期不影响这里
         is_holiday = flags["holiday"]
 
         # 调休上班日优先级最高：即使周末也算工作日
         is_special_workday = flags["special"]
 
-        # 工作日 = 调休上班 OR (非自然周末 AND 非法定节假日)
+        # 工作日 = 调休上班 OR (非自然周末 AND 非法定假期)
         is_workday = is_special_workday or (not natural_weekend and not is_holiday)
 
         # 双休日 = 自然周末 且 非调休上班（可与 is_holiday 并列）
@@ -305,7 +306,7 @@ class SmartWorkdayCoordinator(DataUpdateCoordinator):
         super().__init__(
             hass,
             _LOGGER,
-            name=f"Smart Workday {entry_id}",
+            name=f"{DOMAIN_DISPLAY_NAME} {entry_id}",
             update_interval=SCAN_INTERVAL,
         )
         self.entry_id = entry_id
