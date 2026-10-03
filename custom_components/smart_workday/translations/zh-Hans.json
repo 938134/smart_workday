@@ -28,7 +28,40 @@
                     "enabled_student": "🎓 启用学生假期",
                     "enabled_custom": "⭐ 启用自定义假期"
                 }
+            },
+            "menu": {
+                "title": "快捷操作",
+                "description": "{tips}"
+            },
+            "add_student": {
+                "title": "添加学生假期",
+                "description": "{tips}",
+                "data": {
+                    "student_type": "假期类型",
+                    "start_date": "开始日期",
+                    "end_date": "结束日期"
+                },
+                "data_description": {
+                    "student_type": "选「🎉 儿童节」时自动设为当年 6 月 1 日"
+                }
+            },
+            "add_custom": {
+                "title": "添加自定义假期",
+                "description": "{tips}",
+                "data": {
+                    "custom_name": "假期名称",
+                    "custom_date": "日期"
+                }
+            },
+            "finish": {
+                "title": "完成",
+                "description": "配置已保存，正在重新加载..."
             }
+        },
+        "menu": {
+            "add_student": "🎓 添加学生假期",
+            "add_custom": "⭐ 添加自定义假期",
+            "finish": "✅ 完成"
         }
     }
 }

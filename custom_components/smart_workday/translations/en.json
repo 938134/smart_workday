@@ -28,7 +28,40 @@
                     "enabled_student": "🎓 Enable Student Holidays",
                     "enabled_custom": "⭐ Enable Custom Holidays"
                 }
+            },
+            "menu": {
+                "title": "Quick Actions",
+                "description": "{tips}"
+            },
+            "add_student": {
+                "title": "Add Student Holiday",
+                "description": "{tips}",
+                "data": {
+                    "student_type": "Holiday Type",
+                    "start_date": "Start Date",
+                    "end_date": "End Date"
+                },
+                "data_description": {
+                    "student_type": "Selecting 'Children's Day' auto-sets to June 1 of current year"
+                }
+            },
+            "add_custom": {
+                "title": "Add Custom Holiday",
+                "description": "{tips}",
+                "data": {
+                    "custom_name": "Holiday Name",
+                    "custom_date": "Date"
+                }
+            },
+            "finish": {
+                "title": "Finish",
+                "description": "Configuration saved, reloading..."
             }
+        },
+        "menu": {
+            "add_student": "🎓 Add Student Holiday",
+            "add_custom": "⭐ Add Custom Holiday",
+            "finish": "✅ Finish"
         }
     }
 }
