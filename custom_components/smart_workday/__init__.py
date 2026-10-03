@@ -21,7 +21,7 @@ from .coordinator import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR]
+PLATFORMS = [Platform.SENSOR, Platform.CALENDAR]
 
 
 async def _migrate_yaml_to_store(hass: HomeAssistant, store: Store, entry: ConfigEntry):

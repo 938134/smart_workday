@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.10.0"
+VERSION: Final = "2.11.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -56,14 +56,22 @@ ENABLED_LABELS: Final = {
 
 
 # ============================================================
-# 属性常量（供二进制传感器属性读取）
+# Sensor 实体配置（单个 sensor，state="工作日"/"非工作日"）
 # ============================================================
+SENSOR_STATUS_WORKDAY: Final = "工作日"
+SENSOR_STATUS_NON_WORKDAY: Final = "非工作日"
+
+# 实体名称
+SENSOR_ENTITY_NAME: Final = "工作日状态"
+
+# 属性键名（供 sensor.attributes 读取）
 ATTR_IS_WORKDAY: Final = "is_workday"
 ATTR_IS_HOLIDAY: Final = "is_holiday"
 ATTR_IS_WEEKEND: Final = "is_weekend"
 ATTR_IS_SPECIAL_WORKDAY: Final = "is_special_workday"
 ATTR_IS_STUDENT_HOLIDAY: Final = "is_student_holiday"
 ATTR_IS_CUSTOM_HOLIDAY: Final = "is_custom_holiday"
+ATTR_DAY_TYPE: Final = "day_type"
 
 
 # ============================================================
@@ -176,31 +184,6 @@ DEFAULT_LEGAL_YEAR: Final = _default_legal_year()
 
 
 # ============================================================
-# 二进制传感器配置（4 个独立 boolean 实体）
-# ============================================================
-BINARY_SENSOR_TYPES: Dict[str, Dict[str, Any]] = {
-    ATTR_IS_WORKDAY: {
-        "name": "工作日",
-        "icon": "mdi:briefcase-check",
-        "device_class": None,
-        "info": True,  # 承载详细信息属性
-    },
-    ATTR_IS_HOLIDAY: {
-        "name": "法定假期",
-        "icon": "mdi:calendar-star",
-        "device_class": None,
-    },
-    ATTR_IS_STUDENT_HOLIDAY: {
-        "name": "学生假期",
-        "icon": "mdi:school",
-        "device_class": None,
-    },
-    ATTR_IS_CUSTOM_HOLIDAY: {
-        "name": "自定义假期",
-        "icon": "mdi:star-circle",
-        "device_class": None,
-    },
-}
-
 # 星期名称
+# ============================================================
 WEEKDAY_NAMES: Final[List[str]] = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]

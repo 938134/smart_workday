@@ -1,18 +1,17 @@
-"""Binary Sensor platform for Smart Workday - 4 个独立 boolean 实体.
+"""Sensor platform for Smart Workday - 单个传感器实体.
 
-is_workday         : 是否工作日（含调休上班）
-is_holiday         : 是否法定假期（不含自定义，不含调休上班）
-is_student_holiday : 是否学生假期（独立标志位，不影响工作日）
-is_custom_holiday  : 是否自定义假期（独立标志位，不影响工作日）
+state = "工作日" 或 "非工作日"
+详细信息（日期、星期、day_type、所有布尔标志、事件列表、未来事件）
+统一挂在 attributes 里。
 
-详细信息（日期、星期、是否双休、是否调休、事件列表、未来事件）
-统一挂在 is_workday 实体的属性里，其他三个实体保持纯粹。
+学生假期 / 自定义假期作为独立标志位，不影响工作日判定，
+仅在 attributes 中标记，并在日历上显示。
 """
 
 import logging
 from typing import Any, Dict
 
-from homeassistant.components.binary_sensor import BinarySensorEntity
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -25,56 +24,60 @@ from .const import (
     DEFAULT_NAME,
     DOMAIN_DISPLAY_NAME,
     SENSOR_MODEL,
+    SENSOR_ENTITY_NAME,
+    SENSOR_STATUS_WORKDAY,
+    SENSOR_STATUS_NON_WORKDAY,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
     ATTR_IS_SPECIAL_WORKDAY,
     ATTR_IS_STUDENT_HOLIDAY,
     ATTR_IS_CUSTOM_HOLIDAY,
-    BINARY_SENSOR_TYPES,
+    ATTR_DAY_TYPE,
 )
 from .coordinator import SmartWorkdayCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
-    """独立 boolean 二进制传感器
+class SmartWorkdaySensor(CoordinatorEntity, SensorEntity):
+    """单个工作日状态传感器.
 
-    - is_workday 实体承载详细信息属性（info=True）
-    - is_holiday / is_student_holiday / is_custom_holiday 保持纯粹（只有 on/off）
+    state: "工作日" / "非工作日"
+    attributes: day_type, is_workday, is_holiday, is_weekend, is_special_workday,
+                is_student_holiday, is_custom_holiday, date, weekday,
+                holiday_name, events, upcoming
     """
 
     _attr_has_entity_name = True
+    _attr_should_poll = False
+    _attr_native_unit_of_measurement = None
+    _attr_icon = "mdi:briefcase-check"
+    _attr_name = SENSOR_ENTITY_NAME
 
-    def __init__(self, coordinator: SmartWorkdayCoordinator, sensor_type: str,
-                 name: str, device_info: DeviceInfo, config: Dict[str, Any]):
+    def __init__(self, coordinator: SmartWorkdayCoordinator, device_info: DeviceInfo):
         super().__init__(coordinator)
-        self._attr_unique_id = f"{coordinator.entry_id}_{sensor_type}"
-        self._attr_name = name
-        self._attr_icon = config["icon"]
+        self._attr_unique_id = f"{coordinator.entry_id}_sensor"
         self._attr_device_info = device_info
-        self._attr_should_poll = False
-        if config.get("device_class"):
-            self._attr_device_class = config["device_class"]
-        self._sensor_type = sensor_type
-        self._is_info_entity = bool(config.get("info"))
+        self._attr_sw_version = VERSION
 
     @property
-    def is_on(self) -> bool:
-        """返回该 boolean 标志"""
+    def native_value(self) -> str | None:
+        """返回状态：工作日 / 非工作日"""
         if not self.coordinator.data:
-            return False
-        return self.coordinator.data.get(self._sensor_type, False)
+            return None
+        return SENSOR_STATUS_WORKDAY if self.coordinator.data.get(ATTR_IS_WORKDAY) else SENSOR_STATUS_NON_WORKDAY
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        """详细信息仅挂在 is_workday 实体上"""
-        if not self._is_info_entity or not self.coordinator.data:
+        """所有详细信息挂在 attributes 里"""
+        data = self.coordinator.data
+        if not data:
             return {}
 
-        data = self.coordinator.data
         return {
+            # 主要类型（优先级：调休上班 > 法定假期 > 周末 > 工作日）
+            ATTR_DAY_TYPE: data.get(ATTR_DAY_TYPE, ""),
             # 日期与星期
             "date": data.get("date", ""),
             "weekday": data.get("weekday_name", ""),
@@ -98,8 +101,8 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置 4 个 boolean 二进制传感器"""
-    _LOGGER.debug("设置二进制传感器: %s", entry.entry_id)
+    """设置单个工作日状态传感器"""
+    _LOGGER.debug("设置传感器: %s", entry.entry_id)
 
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
 
@@ -111,9 +114,5 @@ async def async_setup_entry(
         sw_version=VERSION,
     )
 
-    entities = [
-        SmartWorkdayBinarySensor(coordinator, sensor_type, config["name"], device_info, config)
-        for sensor_type, config in BINARY_SENSOR_TYPES.items()
-    ]
-    async_add_entities(entities)
-    _LOGGER.info("已添加 %d 个二进制传感器", len(entities))
+    async_add_entities([SmartWorkdaySensor(coordinator, device_info)])
+    _LOGGER.info("已添加 %s 实体", SENSOR_ENTITY_NAME)

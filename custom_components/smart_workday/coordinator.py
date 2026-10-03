@@ -31,6 +31,7 @@ from .const import (
     ATTR_IS_SPECIAL_WORKDAY,
     ATTR_IS_STUDENT_HOLIDAY,
     ATTR_IS_CUSTOM_HOLIDAY,
+    ATTR_DAY_TYPE,
     CONF_ENABLED_LEGAL,
     CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
@@ -54,6 +55,7 @@ class DayInfo:
     is_special_workday: bool
     is_student_holiday: bool
     is_custom_holiday: bool
+    day_type: str = ""
     events: List[Dict] = field(default_factory=list)
     event_names: List[str] = field(default_factory=list)
     primary_event: str = ""
@@ -274,6 +276,16 @@ class SmartWorkdayDataManager:
         is_student_holiday = flags["student"]
         is_custom_holiday = flags["custom"]
 
+        # day_type：主要身份描述（优先级：调休上班 > 法定假期 > 周末 > 工作日）
+        if is_special_workday:
+            day_type = "调休上班"
+        elif is_holiday:
+            day_type = "法定假期"
+        elif natural_weekend:
+            day_type = "周末"
+        else:
+            day_type = "工作日"
+
         return DayInfo(
             date=today.isoformat(),
             weekday=today.weekday(),
@@ -284,6 +296,7 @@ class SmartWorkdayDataManager:
             is_special_workday=is_special_workday,
             is_student_holiday=is_student_holiday,
             is_custom_holiday=is_custom_holiday,
+            day_type=day_type,
             events=events,
             event_names=list(dict.fromkeys(event_names)),
             primary_event=event_names[0] if event_names else "",
@@ -350,6 +363,7 @@ class SmartWorkdayCoordinator(DataUpdateCoordinator):
                 ATTR_IS_SPECIAL_WORKDAY: day_info.is_special_workday,
                 ATTR_IS_STUDENT_HOLIDAY: day_info.is_student_holiday,
                 ATTR_IS_CUSTOM_HOLIDAY: day_info.is_custom_holiday,
+                ATTR_DAY_TYPE: day_info.day_type,
                 "events": day_info.events,
                 "event_names": day_info.event_names,
                 "primary_event": day_info.primary_event,
