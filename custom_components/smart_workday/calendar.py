@@ -75,6 +75,22 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         """显式返回 True，避免 coordinator 更新失败时日历整块变 unavailable"""
         return True
 
+    @property
+    def state(self) -> str:
+        """覆盖 CalendarEntity 默认 state=None，返回有意义的字符串。
+
+        ⚠️ 关键修复：CalendarEntity 默认 state=None，HA 2026.5+ 历史/活动页面
+        会把 None 显示为 "unavailable"，导致日历的日志全显示不可用。
+        这里返回 "空闲" 或当前事件名称，让活动页面能显示有意义的日志。
+
+        - 无事件 → "空闲"
+        - 有当前/未来事件 → 事件名称（如 "国庆节"）
+        """
+        ev = self.event
+        if ev is None:
+            return "空闲"
+        return ev.summary
+
     def _create_event(self, start_date, end_date, name: str, uid: str = "",
                       description: str = "",
                       tz: Optional[datetime.tzinfo] = None) -> Optional[CalendarEvent]:
