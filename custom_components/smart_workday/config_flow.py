@@ -107,11 +107,24 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
     @override
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
-        """总控台：状态摘要 + 4 个动作按钮。
+        """总控台：状态摘要 + 「下一步操作」下拉框。
 
-        用 async_show_menu 显示 4 个动作按钮，HA 会用
-        `options.step.<option_id>.title` 查翻译（我们已定义），按钮文案稳定渲染。
+        放弃 async_show_menu（不同 HA 版本 menu 标签翻译路径不一致，导致按钮空文字）。
+        改用 async_show_form + SelectSelector：选项标签直接来自 options 数组，翻译 100% 稳定。
         """
+        # 用户已选择动作 → 路由
+        if user_input is not None:
+            action = user_input.get("action", "")
+            if action == "toggle_switch":
+                return await self.async_step_toggle_switch()
+            if action == "add_student_type":
+                return await self.async_step_add_student_type()
+            if action == "add_custom":
+                return await self.async_step_add_custom()
+            if action == "finish":
+                return await self.async_step_finish()
+            return await self.async_step_init()
+
         flags = self._get_flags()
         data = await self._get_calendar_data()
 
@@ -123,17 +136,22 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             "\n📌 **操作说明**\n"
             "  • 法定假期自动从国务院通知导入，无需手动录入\n"
             "  • 删除事件：在日历实体上操作\n"
-            "  • 点击下方按钮进行对应操作"
+            "  • 请在下方「下一步操作」下拉框中选择要执行的动作"
         )
 
-        return self.async_show_menu(
+        return self.async_show_form(
             step_id="init",
-            menu_options=[
-                "toggle_switch",
-                "add_student_type",
-                "add_custom",
-                "finish",
-            ],
+            data_schema=vol.Schema({
+                vol.Required("action", default="toggle_switch"): selector.SelectSelector({
+                    "options": [
+                        {"value": "toggle_switch", "label": "⚙️ 开关管理（启停三类假期）"},
+                        {"value": "add_student_type", "label": "🎓 添加学生假期"},
+                        {"value": "add_custom", "label": "⭐ 添加自定义假期"},
+                        {"value": "finish", "label": "✅ 完成并保存"},
+                    ],
+                    "mode": "dropdown",
+                }),
+            }),
             description_placeholders={"status": status},
         )
 

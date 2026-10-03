@@ -27,7 +27,10 @@
         "step": {
             "init": {
                 "title": "Smart Workday · Dashboard",
-                "description": "{status}"
+                "description": "{status}",
+                "data": {
+                    "action": "Next action"
+                }
             },
             "toggle_switch": {
                 "title": "Toggles",
