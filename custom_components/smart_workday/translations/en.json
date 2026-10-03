@@ -8,20 +8,29 @@
                 "title": "Configure Smart Workday",
                 "description": "{tips}",
                 "data": {
-                    "name": "Integration Name",
-                    "enabled_legal": "📅 Enable National Holidays",
-                    "enabled_student": "🎓 Enable Student Holidays",
-                    "enabled_custom": "⭐ Enable Custom Holidays"
+                    "name": "Integration Name"
                 }
             }
         }
+    },
+
+    "student_type": {
+        "winter": "🏔 Winter",
+        "summer": "🏖 Summer",
+        "spring": "🌸 Spring",
+        "autumn": "🍂 Autumn",
+        "children": "🎉 Children's Day"
     },
 
     "options": {
         "title": "Smart Workday Options",
         "step": {
             "init": {
-                "title": "Smart Workday Options",
+                "title": "Smart Workday · Dashboard",
+                "description": "{status}"
+            },
+            "toggle_switch": {
+                "title": "Toggles",
                 "description": "{tips}",
                 "data": {
                     "enabled_legal": "📅 Enable National Holidays",
@@ -29,20 +38,19 @@
                     "enabled_custom": "⭐ Enable Custom Holidays"
                 }
             },
-            "menu": {
-                "title": "Quick Actions",
-                "description": "{tips}"
-            },
-            "add_student": {
+            "add_student_type": {
                 "title": "Add Student Holiday",
                 "description": "{tips}",
                 "data": {
-                    "student_type": "Holiday Type",
+                    "student_type": "Holiday Type"
+                }
+            },
+            "add_student_date": {
+                "title": "Enter Date Range",
+                "description": "{tips}",
+                "data": {
                     "start_date": "Start Date",
                     "end_date": "End Date"
-                },
-                "data_description": {
-                    "student_type": "Selecting 'Children's Day' auto-sets to June 1 of current year"
                 }
             },
             "add_custom": {
@@ -59,7 +67,8 @@
             }
         },
         "menu": {
-            "add_student": "🎓 Add Student Holiday",
+            "toggle_switch": "⚙️ Toggles",
+            "add_student_type": "🎓 Add Student Holiday",
             "add_custom": "⭐ Add Custom Holiday",
             "finish": "✅ Finish"
         }

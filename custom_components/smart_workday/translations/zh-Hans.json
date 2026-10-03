@@ -8,20 +8,29 @@
                 "title": "配置智能工作日",
                 "description": "{tips}",
                 "data": {
-                    "name": "集成名称",
-                    "enabled_legal": "📅 启用法定假期",
-                    "enabled_student": "🎓 启用学生假期",
-                    "enabled_custom": "⭐ 启用自定义假期"
+                    "name": "集成名称"
                 }
             }
         }
+    },
+
+    "student_type": {
+        "winter": "🏔 寒假",
+        "summer": "🏖 暑假",
+        "spring": "🌸 春假",
+        "autumn": "🍂 秋假",
+        "children": "🎉 儿童节"
     },
 
     "options": {
         "title": "智能工作日配置",
         "step": {
             "init": {
-                "title": "智能工作日配置",
+                "title": "智能工作日 · 总控台",
+                "description": "{status}"
+            },
+            "toggle_switch": {
+                "title": "开关管理",
                 "description": "{tips}",
                 "data": {
                     "enabled_legal": "📅 启用法定假期",
@@ -29,20 +38,19 @@
                     "enabled_custom": "⭐ 启用自定义假期"
                 }
             },
-            "menu": {
-                "title": "快捷操作",
-                "description": "{tips}"
-            },
-            "add_student": {
+            "add_student_type": {
                 "title": "添加学生假期",
                 "description": "{tips}",
                 "data": {
-                    "student_type": "假期类型",
+                    "student_type": "假期类型"
+                }
+            },
+            "add_student_date": {
+                "title": "填写日期范围",
+                "description": "{tips}",
+                "data": {
                     "start_date": "开始日期",
                     "end_date": "结束日期"
-                },
-                "data_description": {
-                    "student_type": "选「🎉 儿童节」时自动设为当年 6 月 1 日"
                 }
             },
             "add_custom": {
@@ -59,7 +67,8 @@
             }
         },
         "menu": {
-            "add_student": "🎓 添加学生假期",
+            "toggle_switch": "⚙️ 开关管理",
+            "add_student_type": "🎓 添加学生假期",
             "add_custom": "⭐ 添加自定义假期",
             "finish": "✅ 完成"
         }
