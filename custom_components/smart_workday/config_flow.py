@@ -267,7 +267,7 @@ class BaseWorkdayFlow:
                 ),
             }),
             description_placeholders={
-                "stats": self._build_route_stats(),
+                "stats": await self._build_route_stats(),
             },
         )
 
