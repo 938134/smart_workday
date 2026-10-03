@@ -134,9 +134,18 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
     async def _generate_events(self) -> List[CalendarEvent]:
         """生成所有分类的日历事件（顶层开关关闭的分类不显示）"""
         events = []
-        data = await self.coordinator.data_manager.get_calendar_events()
+        try:
+            data = await self.coordinator.data_manager.get_calendar_events()
+        except Exception as e:
+            _LOGGER.error("获取日历数据失败: %s", e)
+            data = {"holidays": [], "studentdays": [], "customdays": []}
         tz = self._get_tz()
         flags = getattr(self.coordinator.data_manager, "_enabled_flags", {})
+        _LOGGER.info("日历生成开始: flags=%s 数据总量 holidays=%d studentdays=%d customdays=%d",
+                     flags,
+                     len(data.get("holidays", [])),
+                     len(data.get("studentdays", [])),
+                     len(data.get("customdays", [])))
 
         # 法定假期（顶层开关控制）
         if flags.get(CONF_ENABLED_LEGAL, True):
@@ -144,7 +153,6 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
                 if not isinstance(item, dict):
                     continue
                 name = item.get("name", "法定假期")
-                # 法定日历中若名称含"调休"，标记为调休上班日
                 desc = EVENT_SOURCE_MAKEUP if MAKEUP_KEYWORD in name else EVENT_SOURCE_LEGAL
                 ev = self._create_event(
                     item.get("date") or item.get("start"),
@@ -188,11 +196,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
                 if ev:
                     events.append(ev)
 
-        _LOGGER.info("日历生成 %d 个事件 (holidays=%d, studentdays=%d, customdays=%d)",
-                     len(events),
-                     len(data.get("holidays", [])),
-                     len(data.get("studentdays", [])),
-                     len(data.get("customdays", [])))
+        _LOGGER.info("日历生成完成: 共 %d 个事件", len(events))
         return events
 
     async def async_get_events(self, hass, start_date, end_date) -> List[CalendarEvent]:
@@ -203,26 +207,82 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         if end_date.tzinfo is None:
             end_date = end_date.replace(tzinfo=tz)
 
-        all_events = await self._generate_events()
-        return [
-            e for e in all_events
-            if e.start <= end_date and e.end >= start_date
-        ]
+        try:
+            all_events = await self._generate_events()
+            filtered = [
+                e for e in all_events
+                if e.start <= end_date and e.end >= start_date
+            ]
+            _LOGGER.debug("async_get_events [%s ~ %s]: 全部 %d 条, 过滤后 %d 条",
+                          start_date.date(), end_date.date(), len(all_events), len(filtered))
+            return filtered
+        except Exception as e:
+            _LOGGER.error("async_get_events 失败: %s", e, exc_info=True)
+            return []
 
     @property
     def event(self) -> Optional[CalendarEvent]:
-        """返回下一个即将发生的事件"""
-        if not self._event_list:
+        """返回下一个即将发生的事件。
+
+        ⚠️ CalendarEntity 不会主动 poll，_event_list 可能为空。
+        这里做兜底：如果 _event_list 为空，直接同步查一次缓存数据。
+        """
+        events = self._event_list
+        if not events:
+            try:
+                dm = self.coordinator.data_manager
+                data = getattr(dm, "_data_cache", None)
+                if data:
+                    tz = self._get_tz()
+                    src_map = {
+                        "holidays": EVENT_SOURCE_LEGAL,
+                        "studentdays": EVENT_SOURCE_STUDENT,
+                        "customdays": EVENT_SOURCE_CUSTOM,
+                    }
+                    flag_map = {
+                        "holidays": CONF_ENABLED_LEGAL,
+                        "studentdays": CONF_ENABLED_STUDENT,
+                        "customdays": CONF_ENABLED_CUSTOM,
+                    }
+                    tmp_events = []
+                    for cat, default_src in src_map.items():
+                        if not dm._enabled_flags.get(flag_map[cat], True):
+                            continue
+                        for item in data.get(cat, []):
+                            if not isinstance(item, dict):
+                                continue
+                            if cat == "studentdays" and not item.get("enabled", True):
+                                continue
+                            name = item.get("name", "")
+                            src = EVENT_SOURCE_MAKEUP if (cat == "holidays" and MAKEUP_KEYWORD in name) else default_src
+                            ev = self._create_event(
+                                item.get("date") or item.get("start"),
+                                item.get("date") or item.get("end"),
+                                name, item.get("uid", ""), src, tz,
+                            )
+                            if ev:
+                                tmp_events.append(ev)
+                    if tmp_events:
+                        self._event_list = tmp_events
+                        events = tmp_events
+            except Exception as e:
+                _LOGGER.debug("event 属性兜底查询失败: %s", e)
+
+        if not events:
             return None
-        now = dt.now()
-        future = [e for e in self._event_list if e.start > now]
-        return min(future, key=lambda e: e.start) if future else None
+        try:
+            now = dt.now()
+            future = [e for e in events if e.start > now]
+            return min(future, key=lambda e: e.start) if future else None
+        except Exception as e:
+            _LOGGER.error("event 属性计算失败: %s", e)
+            return None
 
     async def async_update(self) -> None:
-        """更新日历事件"""
+        """更新日历事件（由 HA 按需调用；CalendarEntity 通常不主动 poll）"""
         try:
             self._event_list = await self._generate_events()
-            _LOGGER.debug("更新完成，共 %d 个事件", len(self._event_list))
+            _LOGGER.debug("async_update 完成，共 %d 个事件", len(self._event_list))
         except Exception as e:
             _LOGGER.error("更新日历失败: %s", e)
 
