@@ -272,8 +272,22 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             return None
         try:
             now = dt.now()
+            # 优先级 1：今天正在进行中的事件（start <= now < end）
+            ongoing = [e for e in events if e.start <= now < e.end]
+            if ongoing:
+                return min(ongoing, key=lambda e: e.start)
+            # 优先级 2：未来最近的事件
             future = [e for e in events if e.start > now]
-            return min(future, key=lambda e: e.start) if future else None
+            if future:
+                return min(future, key=lambda e: e.start)
+            # 优先级 3：今天内的事件（同日 start/end，可能刚过 now 或跨午夜）
+            today_events = [
+                e for e in events
+                if e.start.date() == now.date() or e.end.date() == now.date()
+            ]
+            if today_events:
+                return min(today_events, key=lambda e: e.start)
+            return None
         except Exception as e:
             _LOGGER.error("event 属性计算失败: %s", e)
             return None
