@@ -58,12 +58,6 @@
                 "title": "Finish",
                 "description": "Configuration saved, reloading..."
             }
-        },
-        "menu": {
-            "toggle_switch": "⚙️ Toggles",
-            "add_student": "🎓 Add Student Holiday",
-            "add_custom": "⭐ Add Custom Holiday",
-            "finish": "✅ Finish"
         }
     }
 }

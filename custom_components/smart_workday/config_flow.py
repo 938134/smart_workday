@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
 from typing import Any, Dict, Optional, override
 
 import voluptuous as vol
@@ -35,14 +34,9 @@ from .const import (
     CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
     CONF_NAME,
-    CONF_STUDENT_TYPE,
     CONF_START_DATE,
     CONF_END_DATE,
     CONF_CUSTOM_NAME,
-    CONF_CUSTOM_DATE,
-    STUDENT_HOLIDAY_TYPES,
-    CHILDREN_DAY_MONTH,
-    CHILDREN_DAY_DAY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -200,60 +194,39 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
     async def async_step_add_student(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """学生假期：名称 + 开始日期 + 结束日期（可选，与 add_custom 结构统一）。
-
-        - 只填开始日期 → 单日事件（如 2026-06-01）
-        - 填开始 + 结束日期 → 范围事件（如 2026-01-25 ~ 2026-02-21）
-        - 名称自由输入，不限定 5 种固定类型
-        """
-        if user_input is not None:
-            name = (user_input.get(CONF_CUSTOM_NAME) or "").strip()
-            start = user_input.get(CONF_START_DATE)
-            end = user_input.get(CONF_END_DATE)
-            if not name:
-                return self.async_show_form(
-                    step_id="add_student",
-                    errors={"base": "请填写假期名称"},
-                )
-            if not start:
-                return self.async_show_form(
-                    step_id="add_student",
-                    errors={"base": "请选择开始日期"},
-                )
-            # 结束日期为空 → 视为单日（end = start）
-            end_str = end if end else start
-            dm = self._get_data_manager()
-            ok = await dm.add_entry("studentdays", name, start, end_str)
-            if not ok:
-                return self.async_show_form(
-                    step_id="add_student",
-                    errors={"base": "保存失败，请检查日志"},
-                )
-            _LOGGER.info("已添加学生假期: %s (%s ~ %s)", name, start, end_str)
-            return await self.async_step_init()
-
-        return self.async_show_form(
+        """学生假期：名称 + 开始日期 + 结束日期（可选）"""
+        return await self._handle_add_holiday(
             step_id="add_student",
-            data_schema=vol.Schema({
-                vol.Required(CONF_CUSTOM_NAME): selector.TextSelector(),
-                vol.Required(CONF_START_DATE): selector.DateSelector(),
-                vol.Optional(CONF_END_DATE): selector.DateSelector(),
-            }),
-            description_placeholders={
-                "tips": (
-                    "🎓 **添加学生假期**\n"
-                    "填写名称和日期范围。留空结束日期表示单日事件。"
-                ),
-            },
+            category="studentdays",
+            tips="🎓 **添加学生假期**\n填写名称和日期范围。留空结束日期表示单日事件。",
+            log_label="学生假期",
+            user_input=user_input,
         )
 
     @override
     async def async_step_add_custom(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """自定义假期：名称 + 开始日期 + 结束日期（可选，与 add_student 结构统一）。
+        """自定义假期：名称 + 开始日期 + 结束日期（可选）"""
+        return await self._handle_add_holiday(
+            step_id="add_custom",
+            category="customdays",
+            tips="⭐ **添加自定义假期**\n填写名称和日期范围。留空结束日期表示单日事件。",
+            log_label="自定义假期",
+            user_input=user_input,
+        )
 
-        - 只填开始日期 → 单日事件（如 2026-05-01 结婚纪念日）
+    async def _handle_add_holiday(
+        self,
+        step_id: str,
+        category: str,
+        tips: str,
+        log_label: str,
+        user_input: Optional[Dict[str, Any]] = None,
+    ) -> ConfigFlowResult:
+        """学生/自定义假期通用处理器（UI 结构完全一致，仅数据分类不同）。
+
+        - 只填开始日期 → 单日事件（end = start）
         - 填开始 + 结束日期 → 范围事件
         - 名称自由输入
         """
@@ -263,38 +236,34 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             end = user_input.get(CONF_END_DATE)
             if not name:
                 return self.async_show_form(
-                    step_id="add_custom",
+                    step_id=step_id,
                     errors={"base": "请填写假期名称"},
                 )
             if not start:
                 return self.async_show_form(
-                    step_id="add_custom",
+                    step_id=step_id,
                     errors={"base": "请选择开始日期"},
                 )
+            # 结束日期为空 → 视为单日（end = start）
             end_str = end if end else start
             dm = self._get_data_manager()
-            ok = await dm.add_entry("customdays", name, start, end_str)
+            ok = await dm.add_entry(category, name, start, end_str)
             if not ok:
                 return self.async_show_form(
-                    step_id="add_custom",
+                    step_id=step_id,
                     errors={"base": "保存失败，请检查日志"},
                 )
-            _LOGGER.info("已添加自定义假期: %s (%s ~ %s)", name, start, end_str)
+            _LOGGER.info("已添加%s: %s (%s ~ %s)", log_label, name, start, end_str)
             return await self.async_step_init()
 
         return self.async_show_form(
-            step_id="add_custom",
+            step_id=step_id,
             data_schema=vol.Schema({
                 vol.Required(CONF_CUSTOM_NAME): selector.TextSelector(),
                 vol.Required(CONF_START_DATE): selector.DateSelector(),
                 vol.Optional(CONF_END_DATE): selector.DateSelector(),
             }),
-            description_placeholders={
-                "tips": (
-                    "⭐ **添加自定义假期**\n"
-                    "填写名称和日期范围。留空结束日期表示单日事件。"
-                ),
-            },
+            description_placeholders={"tips": tips},
         )
 
     @override
@@ -322,11 +291,3 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             return await self._get_data_manager().load_calendar_data()
         except Exception:
             return {"holidays": [], "studentdays": [], "customdays": []}
-
-    @staticmethod
-    def _get_student_type(value: str) -> Optional[Dict[str, Any]]:
-        """根据 value 查找学生假期类型配置"""
-        for t in STUDENT_HOLIDAY_TYPES:
-            if t["value"] == value:
-                return t
-        return None

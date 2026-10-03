@@ -58,12 +58,6 @@
                 "title": "完成",
                 "description": "配置已保存，正在重新加载..."
             }
-        },
-        "menu": {
-            "toggle_switch": "⚙️ 开关管理",
-            "add_student": "🎓 添加学生假期",
-            "add_custom": "⭐ 添加自定义假期",
-            "finish": "✅ 完成"
         }
     }
 }

@@ -27,7 +27,6 @@ from .const import (
     VERSION,
     DEFAULT_NAME,
     DOMAIN_DISPLAY_NAME,
-    CALENDAR_MODEL,
     CALENDAR_ENTITY_NAME,
     CALENDAR_UNIQUE_SUFFIX,
     CONF_ENABLED_LEGAL,
@@ -131,23 +130,20 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             uid=uid,
         )
 
-    async def _generate_events(self) -> List[CalendarEvent]:
-        """生成所有分类的日历事件（顶层开关关闭的分类不显示）"""
-        events = []
-        try:
-            data = await self.coordinator.data_manager.get_calendar_events()
-        except Exception as e:
-            _LOGGER.error("获取日历数据失败: %s", e)
-            data = {"holidays": [], "studentdays": [], "customdays": []}
-        tz = self._get_tz()
-        flags = getattr(self.coordinator.data_manager, "_enabled_flags", {})
-        _LOGGER.info("日历生成开始: flags=%s 数据总量 holidays=%d studentdays=%d customdays=%d",
-                     flags,
-                     len(data.get("holidays", [])),
-                     len(data.get("studentdays", [])),
-                     len(data.get("customdays", [])))
+    def _build_events_from_data(
+        self,
+        data: dict,
+        flags: dict,
+        tz: Optional[datetime.tzinfo],
+    ) -> List[CalendarEvent]:
+        """从数据字典构建日历事件列表（同步核心）。
 
-        # 法定假期（顶层开关控制）
+        抽出同步版本供 `_generate_events`（async，需要 await load 数据）
+        和 `event` property（sync，只能读缓存）复用，消除重复循环。
+        """
+        events: List[CalendarEvent] = []
+
+        # 法定假期（顶层开关控制；名称含"调休"标记为调休上班）
         if flags.get(CONF_ENABLED_LEGAL, True):
             for item in data.get("holidays", []):
                 if not isinstance(item, dict):
@@ -196,6 +192,25 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
                 if ev:
                     events.append(ev)
 
+        return events
+
+    async def _generate_events(self) -> List[CalendarEvent]:
+        """生成所有分类的日历事件（顶层开关关闭的分类不显示）"""
+        try:
+            data = await self.coordinator.data_manager.get_calendar_events()
+        except Exception as e:
+            _LOGGER.error("获取日历数据失败: %s", e)
+            data = {"holidays": [], "studentdays": [], "customdays": []}
+        tz = self._get_tz()
+        flags = getattr(self.coordinator.data_manager, "_enabled_flags", {})
+        _LOGGER.info("日历生成开始: flags=%s 数据总量 holidays=%d studentdays=%d customdays=%d",
+                     flags,
+                     len(data.get("holidays", [])),
+                     len(data.get("studentdays", [])),
+                     len(data.get("customdays", [])))
+
+        events = self._build_events_from_data(data, flags, tz)
+
         _LOGGER.info("日历生成完成: 共 %d 个事件", len(events))
         return events
 
@@ -233,35 +248,8 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
                 dm = self.coordinator.data_manager
                 data = getattr(dm, "_data_cache", None)
                 if data:
-                    tz = self._get_tz()
-                    src_map = {
-                        "holidays": EVENT_SOURCE_LEGAL,
-                        "studentdays": EVENT_SOURCE_STUDENT,
-                        "customdays": EVENT_SOURCE_CUSTOM,
-                    }
-                    flag_map = {
-                        "holidays": CONF_ENABLED_LEGAL,
-                        "studentdays": CONF_ENABLED_STUDENT,
-                        "customdays": CONF_ENABLED_CUSTOM,
-                    }
-                    tmp_events = []
-                    for cat, default_src in src_map.items():
-                        if not dm._enabled_flags.get(flag_map[cat], True):
-                            continue
-                        for item in data.get(cat, []):
-                            if not isinstance(item, dict):
-                                continue
-                            if cat == "studentdays" and not item.get("enabled", True):
-                                continue
-                            name = item.get("name", "")
-                            src = EVENT_SOURCE_MAKEUP if (cat == "holidays" and MAKEUP_KEYWORD in name) else default_src
-                            ev = self._create_event(
-                                item.get("date") or item.get("start"),
-                                item.get("date") or item.get("end"),
-                                name, item.get("uid", ""), src, tz,
-                            )
-                            if ev:
-                                tmp_events.append(ev)
+                    flags = getattr(dm, "_enabled_flags", {})
+                    tmp_events = self._build_events_from_data(data, flags, self._get_tz())
                     if tmp_events:
                         self._event_list = tmp_events
                         events = tmp_events
@@ -341,7 +329,7 @@ async def async_setup_entry(
         identifiers={(DOMAIN, entry.entry_id)},
         name=entry.data.get("name", DEFAULT_NAME),
         manufacturer=DOMAIN_DISPLAY_NAME,
-        model=CALENDAR_MODEL,
+        model=CALENDAR_ENTITY_NAME,
         sw_version=VERSION,
     )
 

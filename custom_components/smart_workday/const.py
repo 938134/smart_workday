@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.14.2"
+VERSION: Final = "2.14.4"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -24,7 +24,6 @@ DEFAULT_NAME: Final = "智能工作日"          # 集成显示名称默认值
 DOMAIN_DISPLAY_NAME: Final = "Smart Workday"  # 设备 manufacturer（英文）
 
 # 实体与设备元数据
-CALENDAR_MODEL: Final = "假期日历"
 SENSOR_MODEL: Final = "工作日传感器"
 
 # 单日历实体名称（显示所有分类，description 标注来源）
@@ -41,18 +40,9 @@ CONF_ENABLED_CUSTOM: Final = "enabled_custom"
 CONF_NAME: Final = "name"
 
 # OptionsFlow 表单字段
-CONF_STUDENT_TYPE: Final = "student_type"
 CONF_START_DATE: Final = "start_date"
 CONF_END_DATE: Final = "end_date"
 CONF_CUSTOM_NAME: Final = "custom_name"
-CONF_CUSTOM_DATE: Final = "custom_date"
-
-# 三个总开关 → 中文标签
-ENABLED_LABELS: Final = {
-    CONF_ENABLED_LEGAL: "📅 法定假期",
-    CONF_ENABLED_STUDENT: "🎓 学生假期",
-    CONF_ENABLED_CUSTOM: "⭐ 自定义假期",
-}
 
 
 # ============================================================
@@ -93,24 +83,6 @@ SOURCE_TO_CATEGORY: Final = {
 # 日历 UI 手动添加事件时，根据名称关键词推断分类（仅法定日历需要，用于区分调休）
 STUDENT_HOLIDAY_KEYWORDS: Final = ("寒假", "暑假", "春假", "秋假", "儿童节", "学生")
 MAKEUP_KEYWORD: Final = "调休"
-
-
-# ============================================================
-# 学生假期类型（OptionsFlow 表单使用）
-# ============================================================
-# 类型 key → (中文名, 是否单日, 固定月, 固定日)
-# 儿童节固定 6 月 1 日，其他类型为日期范围型（需用户输入 start/end）
-STUDENT_HOLIDAY_TYPES: Final = [
-    {"value": "winter",   "label": "🏔 寒假",   "single_day": False, "month": 0, "day": 0},
-    {"value": "summer",   "label": "🏖 暑假",   "single_day": False, "month": 0, "day": 0},
-    {"value": "spring",   "label": "🌸 春假",   "single_day": False, "month": 0, "day": 0},
-    {"value": "autumn",   "label": "🍂 秋假",   "single_day": False, "month": 0, "day": 0},
-    {"value": "children", "label": "🎉 儿童节", "single_day": True,  "month": 6, "day": 1},
-]
-
-# 儿童节固定日期（每年 6 月 1 日）
-CHILDREN_DAY_MONTH: Final = 6
-CHILDREN_DAY_DAY: Final = 1
 
 
 # ============================================================

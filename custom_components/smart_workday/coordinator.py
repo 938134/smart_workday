@@ -59,7 +59,6 @@ class DayInfo:
     events: List[Dict] = field(default_factory=list)
     event_names: List[str] = field(default_factory=list)
     primary_event: str = ""
-    upcoming_days: List[Dict] = field(default_factory=list)
 
 
 class SmartWorkdayDataManager:
