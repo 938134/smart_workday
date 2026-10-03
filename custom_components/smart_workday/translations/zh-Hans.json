@@ -17,14 +17,6 @@
         }
     },
 
-    "student_type": {
-        "winter": "🏔 寒假",
-        "summer": "🏖 暑假",
-        "spring": "🌸 春假",
-        "autumn": "🍂 秋假",
-        "children": "🎉 儿童节"
-    },
-
     "options": {
         "title": "智能工作日配置",
         "step": {
@@ -44,19 +36,13 @@
                     "enabled_custom": "⭐ 启用自定义假期"
                 }
             },
-            "add_student_type": {
+            "add_student": {
                 "title": "添加学生假期",
                 "description": "{tips}",
                 "data": {
-                    "student_type": "假期类型"
-                }
-            },
-            "add_student_date": {
-                "title": "填写日期范围",
-                "description": "{tips}",
-                "data": {
+                    "custom_name": "假期名称",
                     "start_date": "开始日期",
-                    "end_date": "结束日期"
+                    "end_date": "结束日期（可选，留空为单日）"
                 }
             },
             "add_custom": {
@@ -64,7 +50,8 @@
                 "description": "{tips}",
                 "data": {
                     "custom_name": "假期名称",
-                    "custom_date": "日期"
+                    "start_date": "开始日期",
+                    "end_date": "结束日期（可选，留空为单日）"
                 }
             },
             "finish": {
@@ -74,7 +61,7 @@
         },
         "menu": {
             "toggle_switch": "⚙️ 开关管理",
-            "add_student_type": "🎓 添加学生假期",
+            "add_student": "🎓 添加学生假期",
             "add_custom": "⭐ 添加自定义假期",
             "finish": "✅ 完成"
         }

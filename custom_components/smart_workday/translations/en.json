@@ -17,14 +17,6 @@
         }
     },
 
-    "student_type": {
-        "winter": "🏔 Winter",
-        "summer": "🏖 Summer",
-        "spring": "🌸 Spring",
-        "autumn": "🍂 Autumn",
-        "children": "🎉 Children's Day"
-    },
-
     "options": {
         "title": "Smart Workday Options",
         "step": {
@@ -44,19 +36,13 @@
                     "enabled_custom": "⭐ Enable Custom Holidays"
                 }
             },
-            "add_student_type": {
+            "add_student": {
                 "title": "Add Student Holiday",
                 "description": "{tips}",
                 "data": {
-                    "student_type": "Holiday Type"
-                }
-            },
-            "add_student_date": {
-                "title": "Enter Date Range",
-                "description": "{tips}",
-                "data": {
+                    "custom_name": "Holiday Name",
                     "start_date": "Start Date",
-                    "end_date": "End Date"
+                    "end_date": "End Date (optional, single day if empty)"
                 }
             },
             "add_custom": {
@@ -64,7 +50,8 @@
                 "description": "{tips}",
                 "data": {
                     "custom_name": "Holiday Name",
-                    "custom_date": "Date"
+                    "start_date": "Start Date",
+                    "end_date": "End Date (optional, single day if empty)"
                 }
             },
             "finish": {
@@ -74,7 +61,7 @@
         },
         "menu": {
             "toggle_switch": "⚙️ Toggles",
-            "add_student_type": "🎓 Add Student Holiday",
+            "add_student": "🎓 Add Student Holiday",
             "add_custom": "⭐ Add Custom Holiday",
             "finish": "✅ Finish"
         }

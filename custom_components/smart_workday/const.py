@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.13.0"
+VERSION: Final = "2.14.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
