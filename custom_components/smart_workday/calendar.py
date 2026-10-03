@@ -30,6 +30,9 @@ from .const import (
     CALENDAR_MODEL,
     CALENDAR_ENTITY_NAME,
     CALENDAR_UNIQUE_SUFFIX,
+    CONF_ENABLED_LEGAL,
+    CONF_ENABLED_STUDENT,
+    CONF_ENABLED_CUSTOM,
     EVENT_SOURCE_LEGAL,
     EVENT_SOURCE_STUDENT,
     EVENT_SOURCE_CUSTOM,
@@ -68,18 +71,31 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     # ---------- 事件构建 ----------
 
+    @property
+    def available(self) -> bool:
+        """显式返回 True，避免 coordinator 更新失败时日历整块变 unavailable"""
+        return True
+
     def _create_event(self, start_date, end_date, name: str, uid: str = "",
                       description: str = "",
-                      tz: Optional[datetime.tzinfo] = None) -> CalendarEvent:
-        """创建日历事件"""
+                      tz: Optional[datetime.tzinfo] = None) -> Optional[CalendarEvent]:
+        """创建日历事件（start_date 缺失时返回 None，调用方跳过）"""
+        if not start_date:
+            _LOGGER.warning("跳过事件 '%s'：start_date 为空", name)
+            return None
+
         # 解析开始日期
         if isinstance(start_date, str):
             try:
                 start = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
-            except (ValueError, TypeError):
-                start = datetime.now().date()
+            except (ValueError, TypeError) as e:
+                _LOGGER.warning("跳过事件 '%s'：开始日期解析失败 %r (%s)", name, start_date, e)
+                return None
+        elif hasattr(start_date, "year"):
+            start = start_date
         else:
-            start = start_date if hasattr(start_date, "year") else datetime.now().date()
+            _LOGGER.warning("跳过事件 '%s'：开始日期类型异常 %r", name, start_date)
+            return None
 
         # 解析结束日期（单天事件 end_date 可能为 None 或等于 start）
         if end_date is None or end_date == start_date:
@@ -88,10 +104,13 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             if isinstance(end_date, str):
                 try:
                     end = datetime.strptime(end_date[:10], "%Y-%m-%d").date()
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
+                    _LOGGER.warning("事件 '%s'：结束日期解析失败 %r (%s)，按单日处理", name, end_date, e)
                     end = start
-            else:
+            elif hasattr(end_date, "year"):
                 end = end_date
+            else:
+                end = start
 
         event_start = datetime.combine(start, datetime.min.time())
         event_end = datetime.combine(end + timedelta(days=1), datetime.min.time())
@@ -120,53 +139,60 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         flags = getattr(self.coordinator.data_manager, "_enabled_flags", {})
 
         # 法定假期（顶层开关控制）
-        if flags.get("enabled_legal", True):
+        if flags.get(CONF_ENABLED_LEGAL, True):
             for item in data.get("holidays", []):
                 if not isinstance(item, dict):
                     continue
                 name = item.get("name", "法定假期")
                 # 法定日历中若名称含"调休"，标记为调休上班日
                 desc = EVENT_SOURCE_MAKEUP if MAKEUP_KEYWORD in name else EVENT_SOURCE_LEGAL
-                events.append(self._create_event(
+                ev = self._create_event(
                     item.get("date") or item.get("start"),
                     item.get("date") or item.get("end"),
-                    name,
-                    item.get("uid", ""),
-                    desc,
-                    tz,
-                ))
+                    name, item.get("uid", ""), desc, tz,
+                )
+                if ev:
+                    events.append(ev)
 
         # 学生假期（顶层开关 + 条目 enabled 双重控制）
-        if flags.get("enabled_student", True):
+        if flags.get(CONF_ENABLED_STUDENT, True):
             for item in data.get("studentdays", []):
                 if not isinstance(item, dict):
                     continue
                 if not item.get("enabled", True):
                     continue
-                events.append(self._create_event(
+                ev = self._create_event(
                     item.get("date") or item.get("start"),
                     item.get("date") or item.get("end"),
                     item.get("name", "学生假期"),
                     item.get("uid", ""),
                     EVENT_SOURCE_STUDENT,
                     tz,
-                ))
+                )
+                if ev:
+                    events.append(ev)
 
         # 自定义假期（顶层开关控制）
-        if flags.get("enabled_custom", True):
+        if flags.get(CONF_ENABLED_CUSTOM, True):
             for item in data.get("customdays", []):
                 if not isinstance(item, dict):
                     continue
-                events.append(self._create_event(
+                ev = self._create_event(
                     item.get("date") or item.get("start"),
                     item.get("date") or item.get("end"),
                     item.get("name", "自定义假期"),
                     item.get("uid", ""),
                     EVENT_SOURCE_CUSTOM,
                     tz,
-                ))
+                )
+                if ev:
+                    events.append(ev)
 
-        _LOGGER.debug("生成 %d 个日历事件", len(events))
+        _LOGGER.info("日历生成 %d 个事件 (holidays=%d, studentdays=%d, customdays=%d)",
+                     len(events),
+                     len(data.get("holidays", [])),
+                     len(data.get("studentdays", [])),
+                     len(data.get("customdays", [])))
         return events
 
     async def async_get_events(self, hass, start_date, end_date) -> List[CalendarEvent]:

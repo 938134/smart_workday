@@ -62,11 +62,17 @@ class SmartWorkdaySensor(CoordinatorEntity, SensorEntity):
         self._attr_sw_version = VERSION
 
     @property
-    def native_value(self) -> str | None:
-        """返回状态：工作日 / 非工作日"""
-        if not self.coordinator.data:
-            return None
-        return SENSOR_STATUS_WORKDAY if self.coordinator.data.get(ATTR_IS_WORKDAY) else SENSOR_STATUS_NON_WORKDAY
+    def native_value(self) -> str:
+        """返回状态：工作日 / 非工作日（永不返回 None，避免 HA 显示不可用）"""
+        data = self.coordinator.data
+        if not data:
+            return SENSOR_STATUS_NON_WORKDAY  # 数据未加载时默认视为非工作日
+        return SENSOR_STATUS_WORKDAY if data.get(ATTR_IS_WORKDAY) else SENSOR_STATUS_NON_WORKDAY
+
+    @property
+    def available(self) -> bool:
+        """显式返回 True，避免 HA 因 native_value 边界显示不可用"""
+        return True
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
