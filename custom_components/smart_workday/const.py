@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.14.5"
+VERSION: Final = "2.15.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -24,7 +24,7 @@ DEFAULT_NAME: Final = "智能工作日"          # 集成显示名称默认值
 DOMAIN_DISPLAY_NAME: Final = "Smart Workday"  # 设备 manufacturer（英文）
 
 # 实体与设备元数据
-SENSOR_MODEL: Final = "工作日传感器"
+BINARY_SENSOR_MODEL: Final = "工作日传感器"
 
 # 单日历实体名称（显示所有分类，description 标注来源）
 CALENDAR_ENTITY_NAME: Final = "假期日历"
@@ -46,15 +46,15 @@ CONF_CUSTOM_NAME: Final = "custom_name"
 
 
 # ============================================================
-# Sensor 实体配置（单个 sensor，state="工作日"/"非工作日"）
+# Binary Sensor 实体配置（4 个布尔传感器）
 # ============================================================
-SENSOR_STATUS_WORKDAY: Final = "工作日"
-SENSOR_STATUS_NON_WORKDAY: Final = "非工作日"
+# 实体名称（binary_sensor 平台，状态 on/off）
+BINARY_SENSOR_IS_WORKDAY: Final = "是工作日"
+BINARY_SENSOR_IS_HOLIDAY: Final = "是法定假期"
+BINARY_SENSOR_IS_STUDENT_HOLIDAY: Final = "是学生假期"
+BINARY_SENSOR_IS_CUSTOM_HOLIDAY: Final = "是自定义假期"
 
-# 实体名称
-SENSOR_ENTITY_NAME: Final = "工作日状态"
-
-# 属性键名（供 sensor.attributes 读取）
+# 属性键名（供 binary_sensor.attributes 读取，保留富信息）
 ATTR_IS_WORKDAY: Final = "is_workday"
 ATTR_IS_HOLIDAY: Final = "is_holiday"
 ATTR_IS_WEEKEND: Final = "is_weekend"
