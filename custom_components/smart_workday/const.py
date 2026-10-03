@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.15.0"
+VERSION: Final = "2.15.1"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -49,10 +49,10 @@ CONF_CUSTOM_NAME: Final = "custom_name"
 # Binary Sensor 实体配置（4 个布尔传感器）
 # ============================================================
 # 实体名称（binary_sensor 平台，状态 on/off）
-BINARY_SENSOR_IS_WORKDAY: Final = "是工作日"
-BINARY_SENSOR_IS_HOLIDAY: Final = "是法定假期"
-BINARY_SENSOR_IS_STUDENT_HOLIDAY: Final = "是学生假期"
-BINARY_SENSOR_IS_CUSTOM_HOLIDAY: Final = "是自定义假期"
+BINARY_SENSOR_IS_WORKDAY: Final = "工作日"
+BINARY_SENSOR_IS_HOLIDAY: Final = "法定假期"
+BINARY_SENSOR_IS_STUDENT_HOLIDAY: Final = "学生假期"
+BINARY_SENSOR_IS_CUSTOM_HOLIDAY: Final = "自定义假期"
 
 # 属性键名（供 binary_sensor.attributes 读取，保留富信息）
 ATTR_IS_WORKDAY: Final = "is_workday"
