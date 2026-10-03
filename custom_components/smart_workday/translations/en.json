@@ -8,7 +8,10 @@
                 "title": "Configure Smart Workday",
                 "description": "{tips}",
                 "data": {
-                    "name": "Integration Name"
+                    "name": "Integration Name",
+                    "enabled_legal": "Enable Legal Holidays",
+                    "enabled_student": "Enable Student Holidays",
+                    "enabled_custom": "Enable Custom Holidays"
                 }
             }
         }

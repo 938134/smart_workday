@@ -1,8 +1,8 @@
 """Config flow for Smart Workday.
 
-方案 B（v2.12.0）：
-- ConfigFlow：1 步，只填「集成名称」
-- OptionsFlow 总控台：
+方案 X（v2.13.0）：
+- ConfigFlow：1 步 4 字段（集成名称 + 3 个顶层启用开关）
+- OptionsFlow 总控台（编辑/维护入口）：
     init（总控台菜单）
     ├── toggle_switch（3 开关合一）
     ├── add_student_type（选类型）→ add_student_date（填日期，仅范围型）
@@ -47,13 +47,13 @@ _LOGGER = logging.getLogger(__name__)
 
 
 # ============================================================
-# ConfigFlow - 首次添加集成（仅填名称）
+# ConfigFlow - 首次添加集成（名称 + 3 个顶层开关）
 # ============================================================
 
 class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
-    """首次添加：只填集成名称。
+    """首次添加：集成名称 + 3 个顶层启用开关，一步完成。
 
-    所有开关/录入都放在 OptionsFlow 里，ConfigFlow 不再承担配置职责。
+    提交后 HA 自动跳到 OptionsFlow，用户可继续录入学生/自定义假期。
     """
 
     VERSION = 1
@@ -68,20 +68,28 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """唯一一步：只填集成名称"""
+        """唯一一步：集成名称 + 3 个顶层启用开关"""
         if user_input is not None:
             name = (user_input.get(CONF_NAME) or DEFAULT_NAME).strip() or DEFAULT_NAME
-            return self.async_create_entry(title=name, data={CONF_NAME: name})
+            return self.async_create_entry(title=name, data={
+                CONF_NAME: name,
+                CONF_ENABLED_LEGAL: bool(user_input[CONF_ENABLED_LEGAL]),
+                CONF_ENABLED_STUDENT: bool(user_input[CONF_ENABLED_STUDENT]),
+                CONF_ENABLED_CUSTOM: bool(user_input[CONF_ENABLED_CUSTOM]),
+            })
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
+                vol.Required(CONF_ENABLED_LEGAL, default=True): selector.BooleanSelector(),
+                vol.Required(CONF_ENABLED_STUDENT, default=True): selector.BooleanSelector(),
+                vol.Required(CONF_ENABLED_CUSTOM, default=True): selector.BooleanSelector(),
             }),
             description_placeholders={
                 "tips": (
-                    "⚙️ 输入设备名称（可在 Options Flow 中随时修改配置）。\n"
-                    "💡 保存后会跳到选项配置页面，可设置假期开关并录入假期。"
+                    "⚙️ 输入集成名称，并选择要启用的假期类型（全部默认启用）。\n"
+                    "💡 保存后会跳到选项配置页面，可录入学生假期和自定义假期。"
                 ),
             },
         )

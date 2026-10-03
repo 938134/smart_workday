@@ -8,7 +8,10 @@
                 "title": "配置智能工作日",
                 "description": "{tips}",
                 "data": {
-                    "name": "集成名称"
+                    "name": "集成名称",
+                    "enabled_legal": "📅 启用法定假期",
+                    "enabled_student": "🎓 启用学生假期",
+                    "enabled_custom": "⭐ 启用自定义假期"
                 }
             }
         }
