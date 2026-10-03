@@ -107,24 +107,11 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
 
     @override
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
-        """总控台：状态摘要 + 下一步动作选择。
+        """总控台：状态摘要 + 4 个动作按钮。
 
-        ⚠️ 不用 async_show_menu：不同 HA 版本的 menu 翻译路径不同，容易按钮不渲染。
-        改用 async_show_form + SelectSelector：下拉选项是表单项，翻译稳定，兼容性最好。
+        用 async_show_menu 显示 4 个动作按钮，HA 会用
+        `options.step.<option_id>.title` 查翻译（我们已定义），按钮文案稳定渲染。
         """
-        # 用户已选择动作 → 路由
-        if user_input is not None:
-            action = user_input.get("_action", "")
-            if action == "toggle_switch":
-                return await self.async_step_toggle_switch()
-            if action == "add_student_type":
-                return await self.async_step_add_student_type()
-            if action == "add_custom":
-                return await self.async_step_add_custom()
-            if action == "finish":
-                return await self.async_step_finish()
-            return await self.async_step_init()
-
         flags = self._get_flags()
         data = await self._get_calendar_data()
 
@@ -136,27 +123,17 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             "\n📌 **操作说明**\n"
             "  • 法定假期自动从国务院通知导入，无需手动录入\n"
             "  • 删除事件：在日历实体上操作\n"
-            "  • 完成：点击下方「下一步」选择 ✅ 完成 保存退出"
+            "  • 点击下方按钮进行对应操作"
         )
 
-        # 用 Form + Select 作为"下一步"，避开 menu 翻译坑
-        return self.async_show_form(
+        return self.async_show_menu(
             step_id="init",
-            data_schema=vol.Schema({
-                vol.Required(
-                    "_action",
-                    default="toggle_switch",
-                ): selector.SelectSelector({
-                    "options": [
-                        {"value": "toggle_switch", "label": "⚙️ 开关管理（启停三类假期）"},
-                        {"value": "add_student_type", "label": "🎓 添加学生假期"},
-                        {"value": "add_custom", "label": "⭐ 添加自定义假期"},
-                        {"value": "finish", "label": "✅ 完成并保存"},
-                    ],
-                    "mode": "dropdown",
-                    "translation_key": None,
-                }),
-            }),
+            menu_options=[
+                "toggle_switch",
+                "add_student_type",
+                "add_custom",
+                "finish",
+            ],
             description_placeholders={"status": status},
         )
 

@@ -27,10 +27,7 @@
         "step": {
             "init": {
                 "title": "智能工作日 · 总控台",
-                "description": "{status}",
-                "data": {
-                    "_action": "下一步操作"
-                }
+                "description": "{status}"
             },
             "toggle_switch": {
                 "title": "开关管理",
