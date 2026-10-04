@@ -2,7 +2,7 @@
 
 - 显示所有分类事件（法定/学生/自定义），description 标注来源
 - 仅支持 DELETE_EVENT（录入走 OptionsFlow 表单）
-- 法定假期自动导入（国务院通知），不支持手动添加
+- 数据从 coordinator.data["data"] 缓存读取，不独立加载 Store
 """
 
 import logging
@@ -25,13 +25,9 @@ from homeassistant.util import dt
 from .const import (
     DOMAIN,
     VERSION,
-    DEFAULT_NAME,
     DOMAIN_DISPLAY_NAME,
     CALENDAR_ENTITY_NAME,
     CALENDAR_UNIQUE_SUFFIX,
-    CONF_ENABLED_LEGAL,
-    CONF_ENABLED_STUDENT,
-    CONF_ENABLED_CUSTOM,
     EVENT_SOURCE_LEGAL,
     EVENT_SOURCE_STUDENT,
     EVENT_SOURCE_CUSTOM,
@@ -47,7 +43,6 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
     """单日历实体 - 显示所有分类事件，description 标注来源。"""
 
     _attr_has_entity_name = True
-    # 仅支持删除（录入走 OptionsFlow 表单）
     _attr_supported_features = CalendarEntityFeature.DELETE_EVENT
 
     def __init__(self, coordinator: SmartWorkdayCoordinator, device_info: DeviceInfo):
@@ -58,233 +53,125 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_sw_version = VERSION
         self._attr_icon = "mdi:calendar-month"
         self._event_list: List[CalendarEvent] = []
-
-    # ---------- 时区 ----------
-
-    def _get_tz(self) -> datetime.tzinfo:
-        """获取 HA 系统时区"""
+        # 时区对象（HA 启动时确定）
         try:
-            return ZoneInfo(self.hass.config.time_zone)
+            self._tz = ZoneInfo(self.hass.config.time_zone)
         except Exception:
-            return ZoneInfo("UTC")
+            self._tz = ZoneInfo("UTC")
 
     # ---------- 事件构建 ----------
 
-    def _create_event(self, start_date, end_date, name: str, uid: str = "",
-                      description: str = "",
-                      tz: Optional[datetime.tzinfo] = None) -> Optional[CalendarEvent]:
-        """创建日历事件（start_date 缺失时返回 None，调用方跳过）"""
-        if not start_date:
-            _LOGGER.warning("跳过事件 '%s'：start_date 为空", name)
-            return None
-
-        # 解析开始日期
-        if isinstance(start_date, str):
+    @staticmethod
+    def _parse_date(value) -> Optional[datetime.date]:
+        """解析 YYYY-MM-DD 字符串为 date（兼容 date 对象传入）"""
+        if isinstance(value, datetime.date):
+            return value
+        if isinstance(value, str):
             try:
-                start = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
-            except (ValueError, TypeError) as e:
-                _LOGGER.warning("跳过事件 '%s'：开始日期解析失败 %r (%s)", name, start_date, e)
+                return datetime.strptime(value[:10], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
                 return None
-        elif hasattr(start_date, "year"):
-            start = start_date
-        else:
-            _LOGGER.warning("跳过事件 '%s'：开始日期类型异常 %r", name, start_date)
+        return None
+
+    def _create_event(self, start_str, end_str, name: str, uid: str,
+                      description: str) -> Optional[CalendarEvent]:
+        """创建日历事件（start_str 为空或解析失败时返回 None）"""
+        start = self._parse_date(start_str)
+        if start is None:
+            _LOGGER.warning("跳过事件 '%s'：开始日期为空或解析失败", name)
             return None
 
-        # 解析结束日期（单天事件 end_date 可能为 None 或等于 start）
-        if end_date is None or end_date == start_date:
+        end = self._parse_date(end_str) if end_str and end_str != start_str else start
+        if end is None:
             end = start
-        else:
-            if isinstance(end_date, str):
-                try:
-                    end = datetime.strptime(end_date[:10], "%Y-%m-%d").date()
-                except (ValueError, TypeError) as e:
-                    _LOGGER.warning("事件 '%s'：结束日期解析失败 %r (%s)，按单日处理", name, end_date, e)
-                    end = start
-            elif hasattr(end_date, "year"):
-                end = end_date
-            else:
-                end = start
-
-        event_start = datetime.combine(start, datetime.min.time())
-        event_end = datetime.combine(end + timedelta(days=1), datetime.min.time())
-
-        # 补齐时区
-        if tz is None:
-            tz = self._get_tz()
-        if event_start.tzinfo is None:
-            event_start = event_start.replace(tzinfo=tz)
-        if event_end.tzinfo is None:
-            event_end = event_end.replace(tzinfo=tz)
 
         return CalendarEvent(
-            start=event_start,
-            end=event_end,
+            start=datetime.combine(start, datetime.min.time(), self._tz),
+            end=datetime.combine(end + timedelta(days=1), datetime.min.time(), self._tz),
             summary=name,
             description=description,
             uid=uid,
         )
 
-    def _build_events_from_data(
-        self,
-        data: dict,
-        flags: dict,
-        tz: Optional[datetime.tzinfo],
-    ) -> List[CalendarEvent]:
-        """从数据字典构建日历事件列表（同步核心）。
-
-        抽出同步版本供 `_generate_events`（async，需要 await load 数据）
-        和 `event` property（sync，只能读缓存）复用。
-
-        数据遍历与过滤由 data_manager.iter_enabled_items 统一提供，
-        此处仅负责把条目映射成 CalendarEvent。
-        """
+    def _build_events(self, data: dict) -> List[CalendarEvent]:
+        """从原始数据字典构建 CalendarEvent 列表"""
         dm = self.coordinator.data_manager
         events: List[CalendarEvent] = []
 
         for category, item in dm.iter_enabled_items(data):
-            name = item.get("name", "假期")
-            # description 前缀（法定含调休标记）
+            name = item["name"]
             if category == "holiday":
                 desc = EVENT_SOURCE_MAKEUP if MAKEUP_KEYWORD in name else EVENT_SOURCE_LEGAL
-                default_name = "法定假期"
             elif category == "student":
                 desc = EVENT_SOURCE_STUDENT
-                default_name = "学生假期"
             else:  # custom
                 desc = EVENT_SOURCE_CUSTOM
-                default_name = "自定义假期"
 
-            ev = self._create_event(
-                item.get("date") or item.get("start"),
-                item.get("date") or item.get("end"),
-                item.get("name", default_name),
-                item.get("uid", ""),
-                desc,
-                tz,
-            )
+            start = item.get("date") or item.get("start")
+            end = item.get("date") or item.get("end")
+            ev = self._create_event(start, end, name, item["uid"], desc)
             if ev:
                 events.append(ev)
 
         return events
 
-    async def _generate_events(self) -> List[CalendarEvent]:
-        """生成所有分类的日历事件（顶层开关关闭的分类不显示）"""
-        try:
-            data = await self.coordinator.data_manager.get_calendar_events()
-        except Exception as e:
-            _LOGGER.error("获取日历数据失败: %s", e)
-            data = {"holidays": [], "studentdays": [], "customdays": []}
-        tz = self._get_tz()
-        flags = getattr(self.coordinator.data_manager, "_enabled_flags", {})
-        _LOGGER.info("日历生成开始: flags=%s 数据总量 holidays=%d studentdays=%d customdays=%d",
-                     flags,
-                     len(data.get("holidays", [])),
-                     len(data.get("studentdays", [])),
-                     len(data.get("customdays", [])))
-
-        events = self._build_events_from_data(data, flags, tz)
-
-        _LOGGER.info("日历生成完成: 共 %d 个事件", len(events))
-        return events
-
     async def async_get_events(self, hass, start_date, end_date) -> List[CalendarEvent]:
         """获取时间段内的事件"""
-        tz = self._get_tz()
         if start_date.tzinfo is None:
-            start_date = start_date.replace(tzinfo=tz)
+            start_date = start_date.replace(tzinfo=self._tz)
         if end_date.tzinfo is None:
-            end_date = end_date.replace(tzinfo=tz)
+            end_date = end_date.replace(tzinfo=self._tz)
 
-        try:
-            all_events = await self._generate_events()
-            filtered = [
-                e for e in all_events
-                if e.start <= end_date and e.end >= start_date
-            ]
-            _LOGGER.debug("async_get_events [%s ~ %s]: 全部 %d 条, 过滤后 %d 条",
-                          start_date.date(), end_date.date(), len(all_events), len(filtered))
-            return filtered
-        except Exception as e:
-            _LOGGER.error("async_get_events 失败: %s", e, exc_info=True)
+        data = self.coordinator.data.get("data") if self.coordinator.data else None
+        if not data:
             return []
+
+        all_events = self._build_events(data)
+        return [e for e in all_events if e.start <= end_date and e.end >= start_date]
 
     @property
     def event(self) -> Optional[CalendarEvent]:
-        """返回下一个即将发生的事件。
+        """返回当前/最近事件（三级优先级：进行中 > 未来 > 今天）
 
-        ⚠️ CalendarEntity 不会主动 poll，_event_list 可能为空。
-        这里做兜底：如果 _event_list 为空，直接同步查一次缓存数据。
+        每次直接基于 coordinator.data["data"] 构建，避免依赖 _event_list
+        何时被 async_update 填充。
         """
-        events = self._event_list
-        if not events:
-            try:
-                dm = self.coordinator.data_manager
-                data = getattr(dm, "_data_cache", None)
-                if data:
-                    flags = getattr(dm, "_enabled_flags", {})
-                    tmp_events = self._build_events_from_data(data, flags, self._get_tz())
-                    if tmp_events:
-                        self._event_list = tmp_events
-                        events = tmp_events
-            except Exception as e:
-                _LOGGER.debug("event 属性兜底查询失败: %s", e)
-
-        if not events:
-            return None
-        try:
-            now = dt.now()
-            # 优先级 1：今天正在进行中的事件（start <= now < end）
-            ongoing = [e for e in events if e.start <= now < e.end]
-            if ongoing:
-                return min(ongoing, key=lambda e: e.start)
-            # 优先级 2：未来最近的事件
-            future = [e for e in events if e.start > now]
-            if future:
-                return min(future, key=lambda e: e.start)
-            # 优先级 3：今天内的事件（同日 start/end，可能刚过 now 或跨午夜）
-            today_events = [
-                e for e in events
-                if e.start.date() == now.date() or e.end.date() == now.date()
-            ]
-            if today_events:
-                return min(today_events, key=lambda e: e.start)
-            return None
-        except Exception as e:
-            _LOGGER.error("event 属性计算失败: %s", e)
+        data = self.coordinator.data.get("data") if self.coordinator.data else None
+        if not data:
             return None
 
-    async def async_update(self) -> None:
-        """更新日历事件列表（由 HA 按需调用）"""
-        try:
-            self._event_list = await self._generate_events()
-            _LOGGER.debug("async_update 完成，共 %d 个事件", len(self._event_list))
-            self.async_write_ha_state()
-        except Exception as e:
-            _LOGGER.error("更新日历失败: %s", e)
+        events = self._build_events(data)
+        if not events:
+            return None
+
+        now = dt.now()
+        # 优先级 1：进行中
+        ongoing = [e for e in events if e.start <= now < e.end]
+        if ongoing:
+            return min(ongoing, key=lambda e: e.start)
+        # 优先级 2：未来最近
+        future = [e for e in events if e.start > now]
+        if future:
+            return min(future, key=lambda e: e.start)
+        # 优先级 3：今天内
+        today_events = [
+            e for e in events
+            if e.start.date() == now.date() or e.end.date() == now.date()
+        ]
+        if today_events:
+            return min(today_events, key=lambda e: e.start)
+        return None
 
     # ---------- 日历 UI 删除支持 ----------
 
     async def async_delete_event(self, uid: str, **kwargs) -> None:
-        """通过日历 UI 删除事件（遍历所有分类查找 uid）"""
+        """通过日历 UI 删除事件"""
         if not uid:
             raise ValueError("删除事件需要 uid")
 
-        dm = self.coordinator.data_manager
-        # 先检查 uid 是否存在
-        data = await dm.get_calendar_events()
-        found = False
-        for cat in ("holidays", "studentdays", "customdays"):
-            items = data.get(cat, [])
-            if any(isinstance(item, dict) and item.get("uid") == uid for item in items):
-                found = True
-                break
-        if not found:
-            raise ValueError(f"未找到 uid={uid} 的事件")
-
-        deleted = await dm.delete_entry_by_uid(uid)
+        deleted = await self.coordinator.data_manager.delete_entry_by_uid(uid)
         if not deleted:
-            raise ValueError(f"未找到 uid={uid} 的假期条目")
+            raise ValueError(f"未找到 uid={uid} 的事件")
 
         await self.coordinator.async_request_refresh()
         _LOGGER.info("日历UI删除: uid=%s", uid)
@@ -302,7 +189,7 @@ async def async_setup_entry(
 
     device_info = DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
-        name=entry.data.get("name", DEFAULT_NAME),
+        name=entry.data["name"],
         manufacturer=DOMAIN_DISPLAY_NAME,
         model=CALENDAR_ENTITY_NAME,
         sw_version=VERSION,

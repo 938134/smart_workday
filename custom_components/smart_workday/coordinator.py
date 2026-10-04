@@ -24,14 +24,6 @@ from homeassistant.util import dt
 
 from .const import (
     DOMAIN,
-    STORAGE_VERSION,
-    ATTR_IS_WORKDAY,
-    ATTR_IS_HOLIDAY,
-    ATTR_IS_WEEKEND,
-    ATTR_IS_SPECIAL_WORKDAY,
-    ATTR_IS_STUDENT_HOLIDAY,
-    ATTR_IS_CUSTOM_HOLIDAY,
-    ATTR_DAY_TYPE,
     CONF_ENABLED_LEGAL,
     CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
@@ -41,7 +33,8 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-SCAN_INTERVAL = timedelta(minutes=60)
+# 日历每天只变一次，60 分钟更新是浪费；25h 保证跨天覆盖
+SCAN_INTERVAL = timedelta(hours=25)
 
 
 @dataclass
@@ -90,9 +83,9 @@ class SmartWorkdayDataManager:
         }
 
     def update_enabled_flags(self, entry_data: Dict[str, Any]):
-        """从 entry.data 更新顶层启用开关（向后兼容：未设置默认 True）"""
+        """从 entry.data 更新顶层启用开关"""
         for key in (CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM):
-            self._enabled_flags[key] = bool(entry_data.get(key, True))
+            self._enabled_flags[key] = bool(entry_data[key])
 
     async def load_calendar_data(self, force_reload: bool = False) -> Dict:
         """从 Store 加载数据（带 1 分钟缓存）"""
@@ -104,35 +97,11 @@ class SmartWorkdayDataManager:
 
         try:
             data = await self._store.async_load()
-            if data is None or not isinstance(data, dict):
-                data = {}
-
-            data.setdefault("holidays", [])
-            data.setdefault("customdays", [])
-            data.setdefault("studentdays", [])
-
-            # 清理无效条目 + 补全 uid（向后兼容旧数据）
-            need_save = False
-            for cat in ("holidays", "customdays", "studentdays"):
-                if not isinstance(data[cat], list):
-                    data[cat] = []
-                # 移除非 dict 项（历史 bug 或手工编辑导致的脏数据）
-                cleaned = [item for item in data[cat] if isinstance(item, dict)]
-                removed = len(data[cat]) - len(cleaned)
-                if removed > 0:
-                    _LOGGER.warning("清理 %s 中 %d 条无效数据", cat, removed)
-                    data[cat] = cleaned
-                    need_save = True
-                for item in cleaned:
-                    if "uid" not in item:
-                        item["uid"] = str(uuid.uuid4())[:8]
-                        need_save = True
+            if not data:
+                data = {"holidays": [], "studentdays": [], "customdays": []}
 
             self._data_cache = data
             self._last_loaded = now
-            if need_save:
-                await self._async_save_sync(data)
-
             return data
 
         except Exception as e:
@@ -168,7 +137,7 @@ class SmartWorkdayDataManager:
             entry["date"] = start
         if description:
             entry["description"] = description
-        data.setdefault(category, []).append(entry)
+        data[category].append(entry)
         saved = await self._async_save_sync(data)
         if saved:
             _LOGGER.info("已添加假期: [%s] %s (%s)", category, name, start)
@@ -178,13 +147,13 @@ class SmartWorkdayDataManager:
         """根据 uid 删除一条假期"""
         data = await self.load_calendar_data(force_reload=True)
         for cat in ("holidays", "customdays", "studentdays"):
-            items = data.get(cat, [])
+            items = data[cat]
             for i, item in enumerate(items):
-                if isinstance(item, dict) and item.get("uid") == uid:
+                if item["uid"] == uid:
                     items.pop(i)
                     saved = await self._async_save_sync(data)
                     if saved:
-                        _LOGGER.info("已删除假期: [%s] %s", cat, item.get("name", "?"))
+                        _LOGGER.info("已删除假期: [%s] %s", cat, item["name"])
                     return saved
         _LOGGER.warning("未找到 uid=%s 的假期条目", uid)
         return False
@@ -194,32 +163,29 @@ class SmartWorkdayDataManager:
 
         - category 取值：'holiday'（含调休） / 'student' / 'custom'
         - 应用顶层开关 + student 条目级 enabled 双重过滤
-        - 统一去重：只返回 dict 类型、字段完整的条目
 
         供 get_today_events（判定 flags）与 calendar 事件构建（构造 CalendarEvent）复用。
         """
         if data is None:
-            data = self._data_cache or {}
+            data = self._data_cache or {"holidays": [], "studentdays": [], "customdays": []}
 
         results: List[tuple] = []
 
         # 法定假期（顶层开关控制）
-        if self._enabled_flags.get(CONF_ENABLED_LEGAL, True):
-            for item in data.get("holidays", []):
-                if isinstance(item, dict):
-                    results.append(("holiday", item))
+        if self._enabled_flags[CONF_ENABLED_LEGAL]:
+            for item in data["holidays"]:
+                results.append(("holiday", item))
 
         # 学生假期（顶层开关 + 条目 enabled 双重控制）
-        if self._enabled_flags.get(CONF_ENABLED_STUDENT, True):
-            for item in data.get("studentdays", []):
-                if isinstance(item, dict) and item.get("enabled", True):
+        if self._enabled_flags[CONF_ENABLED_STUDENT]:
+            for item in data["studentdays"]:
+                if item.get("enabled", True):
                     results.append(("student", item))
 
         # 自定义假期（顶层开关控制）
-        if self._enabled_flags.get(CONF_ENABLED_CUSTOM, True):
-            for item in data.get("customdays", []):
-                if isinstance(item, dict):
-                    results.append(("custom", item))
+        if self._enabled_flags[CONF_ENABLED_CUSTOM]:
+            for item in data["customdays"]:
+                results.append(("custom", item))
 
         return results
 
@@ -243,7 +209,7 @@ class SmartWorkdayDataManager:
         if check_date is None:
             check_date = dt.now().date()
         if data is None:
-            data = self._data_cache or {}
+            data = self._data_cache or {"holidays": [], "studentdays": [], "customdays": []}
 
         events: List[Dict] = []
         for category, item in self.iter_enabled_items(data):
@@ -251,21 +217,15 @@ class SmartWorkdayDataManager:
                 continue
             # 法定假期中，名称含"调休"视为调休上班（special）
             if category == "holiday":
-                is_makeup = MAKEUP_KEYWORD in item.get("name", "")
+                is_makeup = MAKEUP_KEYWORD in item["name"]
                 events.append({
-                    "name": item.get("name", "节假日"),
+                    "name": item["name"],
                     "type": "special" if is_makeup else "holiday",
                 })
             elif category == "student":
-                events.append({
-                    "name": item.get("name", "学生假期"),
-                    "type": "student",
-                })
+                events.append({"name": item["name"], "type": "student"})
             else:  # custom
-                events.append({
-                    "name": item.get("name", "自定义假期"),
-                    "type": "custom",
-                })
+                events.append({"name": item["name"], "type": "custom"})
         return events
 
     def analyze_day(self, today: date, events: List[Dict]) -> DayInfo:
@@ -334,7 +294,7 @@ class SmartWorkdayDataManager:
                           data: Optional[Dict] = None) -> List[Dict]:
         """获取未来几天信息"""
         if data is None:
-            data = self._data_cache or {}
+            data = self._data_cache or {"holidays": [], "studentdays": [], "customdays": []}
         upcoming = []
         for i in range(1, days + 1):
             future = today + timedelta(days=i)
@@ -346,13 +306,17 @@ class SmartWorkdayDataManager:
                 })
         return upcoming
 
-    async def get_calendar_events(self) -> Dict:
-        """获取所有日历事件（用于日历实体）"""
-        return await self.load_calendar_data(force_reload=True)
-
 
 class SmartWorkdayCoordinator(DataUpdateCoordinator):
-    """协调器 - 管理数据更新"""
+    """协调器 - 管理数据更新。
+
+    data 结构（v2.18 简化）：
+    {
+        "day_info": DayInfo,       # 今天完整信息（属性直接访问）
+        "upcoming": List[Dict],    # 未来几天事件
+        "data": Dict,              # 原始 Store 数据（供 calendar 构建事件复用）
+    }
+    """
 
     def __init__(self, hass: HomeAssistant, entry_id: str, data_manager: SmartWorkdayDataManager):
         super().__init__(
@@ -365,37 +329,18 @@ class SmartWorkdayCoordinator(DataUpdateCoordinator):
         self.data_manager = data_manager
 
     async def _async_update_data(self) -> Dict[str, Any]:
-        """更新数据"""
+        """更新数据 - 一次性算出今天信息 + 未来事件 + 原始缓存"""
         try:
             today = dt.now().date()
-
-            # 加载数据
             data = await self.data_manager.load_calendar_data()
-
-            # 获取当天事件
             events = self.data_manager.get_today_events(today, data)
-
-            # 分析当天
             day_info = self.data_manager.analyze_day(today, events)
-
-            # 获取未来事件
             upcoming = self.data_manager.get_upcoming_days(today, days=7, data=data)
 
             return {
-                "date": day_info.date,
-                "weekday": day_info.weekday,
-                "weekday_name": day_info.weekday_name,
-                ATTR_IS_WORKDAY: day_info.is_workday,
-                ATTR_IS_HOLIDAY: day_info.is_holiday,
-                ATTR_IS_WEEKEND: day_info.is_weekend,
-                ATTR_IS_SPECIAL_WORKDAY: day_info.is_special_workday,
-                ATTR_IS_STUDENT_HOLIDAY: day_info.is_student_holiday,
-                ATTR_IS_CUSTOM_HOLIDAY: day_info.is_custom_holiday,
-                ATTR_DAY_TYPE: day_info.day_type,
-                "events": day_info.events,
-                "event_names": day_info.event_names,
-                "primary_event": day_info.primary_event,
+                "day_info": day_info,
                 "upcoming": upcoming,
+                "data": data,
             }
 
         except Exception as err:

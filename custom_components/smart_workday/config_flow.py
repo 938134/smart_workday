@@ -281,12 +281,12 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
     # ---------- 辅助方法 ----------
 
     def _get_flags(self) -> Dict[str, bool]:
-        """读取当前 entry.data 中的开关（向后兼容：缺字段默认 True）"""
+        """读取当前 entry.data 中的开关"""
         d = self.config_entry.data
         return {
-            CONF_ENABLED_LEGAL: bool(d.get(CONF_ENABLED_LEGAL, True)),
-            CONF_ENABLED_STUDENT: bool(d.get(CONF_ENABLED_STUDENT, True)),
-            CONF_ENABLED_CUSTOM: bool(d.get(CONF_ENABLED_CUSTOM, True)),
+            CONF_ENABLED_LEGAL: bool(d[CONF_ENABLED_LEGAL]),
+            CONF_ENABLED_STUDENT: bool(d[CONF_ENABLED_STUDENT]),
+            CONF_ENABLED_CUSTOM: bool(d[CONF_ENABLED_CUSTOM]),
         }
 
     def _get_data_manager(self):
