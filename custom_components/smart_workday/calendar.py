@@ -117,17 +117,26 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     async def async_get_events(self, hass, start_date, end_date) -> List[CalendarEvent]:
         """获取时间段内的事件"""
-        if start_date.tzinfo is None:
-            start_date = start_date.replace(tzinfo=self._tz)
-        if end_date.tzinfo is None:
-            end_date = end_date.replace(tzinfo=self._tz)
+        try:
+            if start_date.tzinfo is None:
+                start_date = start_date.replace(tzinfo=self._tz)
+            if end_date.tzinfo is None:
+                end_date = end_date.replace(tzinfo=self._tz)
 
-        data = self.coordinator.data.get("data") if self.coordinator.data else None
-        if not data:
+            data = self.coordinator.data.get("data") if self.coordinator.data else None
+            if not data:
+                _LOGGER.warning("async_get_events: coordinator.data 为空，兜底查 _data_cache")
+                data = self.coordinator.data_manager._data_cache
+
+            if not data:
+                _LOGGER.warning("async_get_events: 无任何可用数据")
+                return []
+
+            all_events = self._build_events(data)
+            return [e for e in all_events if e.start <= end_date and e.end >= start_date]
+        except Exception as e:
+            _LOGGER.error("async_get_events 失败: %s", e, exc_info=True)
             return []
-
-        all_events = self._build_events(data)
-        return [e for e in all_events if e.start <= end_date and e.end >= start_date]
 
     @property
     def event(self) -> Optional[CalendarEvent]:
@@ -136,31 +145,39 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         每次直接基于 coordinator.data["data"] 构建，避免依赖 _event_list
         何时被 async_update 填充。
         """
-        data = self.coordinator.data.get("data") if self.coordinator.data else None
-        if not data:
-            return None
+        try:
+            data = self.coordinator.data.get("data") if self.coordinator.data else None
+            if not data:
+                # 兜底：coordinator 首次刷新前，data 为 None，直接读 data_manager 缓存
+                data = self.coordinator.data_manager._data_cache
 
-        events = self._build_events(data)
-        if not events:
-            return None
+            if not data:
+                return None
 
-        now = dt.now()
-        # 优先级 1：进行中
-        ongoing = [e for e in events if e.start <= now < e.end]
-        if ongoing:
-            return min(ongoing, key=lambda e: e.start)
-        # 优先级 2：未来最近
-        future = [e for e in events if e.start > now]
-        if future:
-            return min(future, key=lambda e: e.start)
-        # 优先级 3：今天内
-        today_events = [
-            e for e in events
-            if e.start.date() == now.date() or e.end.date() == now.date()
-        ]
-        if today_events:
-            return min(today_events, key=lambda e: e.start)
-        return None
+            events = self._build_events(data)
+            if not events:
+                return None
+
+            now = dt.now()
+            # 优先级 1：进行中
+            ongoing = [e for e in events if e.start <= now < e.end]
+            if ongoing:
+                return min(ongoing, key=lambda e: e.start)
+            # 优先级 2：未来最近
+            future = [e for e in events if e.start > now]
+            if future:
+                return min(future, key=lambda e: e.start)
+            # 优先级 3：今天内
+            today_events = [
+                e for e in events
+                if e.start.date() == now.date() or e.end.date() == now.date()
+            ]
+            if today_events:
+                return min(today_events, key=lambda e: e.start)
+            return None
+        except Exception as e:
+            _LOGGER.error("event 属性计算失败: %s", e, exc_info=True)
+            return None
 
     # ---------- 日历 UI 删除支持 ----------
 
