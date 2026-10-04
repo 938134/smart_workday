@@ -77,7 +77,13 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     @property
     def available(self) -> bool:
-        """显式返回 True，避免 coordinator 更新失败时日历整块变 unavailable"""
+        """强制返回 True，并同步 _attr_available。
+
+        ⚠️ HA 2026.5+ 中历史系统直接读取 _attr_available，
+        如果为 False 会把 state 强制设为 None（显示为 unavailable）。
+        所以这里必须同步设置 _attr_available=True。
+        """
+        self._attr_available = True
         return True
 
     @property
@@ -91,7 +97,10 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         格式：
         - 无事件 → "空闲 2026-10-04"
         - 有事件 → "国庆节 2026-10-04"
+
+        同时强制 _attr_available=True，防止 HA 把 state 覆盖为 unavailable。
         """
+        self._attr_available = True  # 防止 HA 覆盖 state
         ev = self.event
         today = dt.now().date().isoformat()
         if ev is None:
@@ -313,9 +322,19 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             self._event_list = await self._generate_events()
             _LOGGER.debug("async_update 完成，共 %d 个事件", len(self._event_list))
             # 主动写入 state，确保 HA 历史系统捕捉到每日日期变化
+            self._attr_available = True
             self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("更新日历失败: %s", e)
+
+    def write_ha_state(self, *args, **kwargs):
+        """覆盖 HA 的 write_ha_state，确保 _attr_available 始终为 True。
+
+        ⚠️ HA 2026.5+ 中 write_ha_state 直接读取 _attr_available，
+        如果为 False 会把 state 强制设为 None（显示为 unavailable）。
+        """
+        self._attr_available = True
+        super().write_ha_state(*args, **kwargs)
 
     # ---------- 日历 UI 删除支持 ----------
 
