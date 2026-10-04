@@ -123,16 +123,20 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             if end_date.tzinfo is None:
                 end_date = end_date.replace(tzinfo=self._tz)
 
-            data = self.coordinator.data.get("data") if self.coordinator.data else None
-            if not data:
-                _LOGGER.warning("async_get_events: coordinator.data 为空，兜底查 _data_cache")
-                data = self.coordinator.data_manager._data_cache
+            # 优先用缓存
+            if self._event_list:
+                all_events = self._event_list
+            else:
+                data = self.coordinator.data.get("data") if self.coordinator.data else None
+                if not data:
+                    data = self.coordinator.data_manager._data_cache
+                if not data:
+                    _LOGGER.warning("async_get_events: 无任何可用数据")
+                    return []
+                all_events = self._build_events(data)
+                if all_events:
+                    self._event_list = all_events
 
-            if not data:
-                _LOGGER.warning("async_get_events: 无任何可用数据")
-                return []
-
-            all_events = self._build_events(data)
             return [e for e in all_events if e.start <= end_date and e.end >= start_date]
         except Exception as e:
             _LOGGER.error("async_get_events 失败: %s", e, exc_info=True)
@@ -142,19 +146,20 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
     def event(self) -> Optional[CalendarEvent]:
         """返回当前/最近事件（三级优先级：进行中 > 未来 > 今天）
 
-        每次直接基于 coordinator.data["data"] 构建，避免依赖 _event_list
-        何时被 async_update 填充。
+        优先读 _event_list 缓存（由 async_update 填充）；
+        缓存为空时直接同步构建，避免 HA 感知不到事件。
         """
         try:
-            data = self.coordinator.data.get("data") if self.coordinator.data else None
-            if not data:
-                # 兜底：coordinator 首次刷新前，data 为 None，直接读 data_manager 缓存
-                data = self.coordinator.data_manager._data_cache
-
-            if not data:
-                return None
-
-            events = self._build_events(data)
+            events = self._event_list
+            if not events:
+                data = self.coordinator.data.get("data") if self.coordinator.data else None
+                if not data:
+                    data = self.coordinator.data_manager._data_cache
+                if not data:
+                    return None
+                events = self._build_events(data)
+                if events:
+                    self._event_list = events
             if not events:
                 return None
 
@@ -179,6 +184,18 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             _LOGGER.error("event 属性计算失败: %s", e, exc_info=True)
             return None
 
+    async def async_update(self) -> None:
+        """CalendarEntity 请求时刷新事件缓存"""
+        try:
+            data = self.coordinator.data.get("data") if self.coordinator.data else None
+            if not data:
+                data = self.coordinator.data_manager._data_cache
+            if not data:
+                return
+            self._event_list = self._build_events(data)
+        except Exception as e:
+            _LOGGER.error("async_update 失败: %s", e, exc_info=True)
+
     # ---------- 日历 UI 删除支持 ----------
 
     async def async_delete_event(self, uid: str, **kwargs) -> None:
@@ -190,6 +207,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         if not deleted:
             raise ValueError(f"未找到 uid={uid} 的事件")
 
+        self._event_list = []  # 清空缓存，等待刷新
         await self.coordinator.async_request_refresh()
         _LOGGER.info("日历UI删除: uid=%s", uid)
 
