@@ -11,14 +11,17 @@ v2.18.5 关键修复：
 - `_attr_state` / `_attr_available` 同步写入，
   HA 2026.5+ 历史系统直接读取 _attr_state，None 会记为 unavailable
 
-v2.18.6 关键修复（活动详情/Logbook 显示"不可用"）：
-- 覆盖 `state` property：返回 "国庆节 2026-10-04" 格式（含日期后缀）
-  - HA Logbook 只在 state 变化时记录，日期后缀让每天零点自动变化
-  - 不覆盖时 HA CalendarEntity 默认返回 on/off，Logbook 只显示 on/off
-- 覆盖 `write_ha_state`：写状态前强制 `_attr_available=True`
-  - CoordinatorEntity 的 last_update_success 会间接污染 _attr_available
-  - 不强制会偶尔出现 state=None → Logbook 记为 unavailable
-- `available` property 内部同步设置 _attr_available=True（双保险）
+v2.18.6 尝试失败：
+- 覆盖 state property 返回 "国庆节 2026-10-04" → HA 内部对自定义字符串格式
+  处理异常，配置后立刻在 Logbook 记录"不可用"
+
+v2.18.7 修复（回退 state 覆盖）：
+- 删除 state property 覆盖（HA CalendarEntity.state 有 @final，覆盖有副作用）
+- 保留 write_ha_state 覆盖：写状态前强制 _attr_available=True
+  防止 CoordinatorEntity.last_update_success 抖动污染 _attr_available
+- 保留 available property 覆盖：返回 True + 内部同步 _attr_available=True
+- 依赖 __init__ 里 _attr_state="空闲" + async_update 里同步 _attr_state
+  让 HA 走默认 state 处理，Logbook 记录 "空闲"/"国庆节" 字符串
 """
 
 import logging
@@ -91,37 +94,6 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         """
         self._attr_available = True
         return True
-
-    @property
-    def state(self) -> str:
-        """覆盖 HA CalendarEntity 默认 state，让 Logbook 每天捕获状态变化。
-
-        返回格式：
-        - 有事件 → "国庆节 2026-10-04"
-        - 无事件 → "空闲 2026-10-04"
-
-        为什么需要日期后缀：
-        - HA Logbook 只在 state 变化时写入新记录
-        - 国庆节持续 7 天，若无日期后缀 state 一直相同 → Logbook 不记录
-        - 加日期 → 每天零点 state 自动变化 → Logbook 每天捕获一条
-
-        为什么需要覆盖 state property：
-        - HA CalendarEntity 的 state 默认可能是 on/off 字符串
-        - HA 2026.5+ 历史系统直接读取返回的字符串作为 Logbook 记录
-        - 若不覆盖，Logbook 只会显示 on/off，看不出是"国庆节"
-
-        ⚠️ 副作用：CalendarEntity.state 有 @final 装饰器，
-        覆盖会在日志打印一条 warning（不影响功能）。
-        """
-        self._attr_available = True  # 防止 HA 覆盖 state
-        today = dt.now().date().isoformat()
-        ev = self.event
-        if ev is None:
-            new_state = f"空闲 {today}"
-        else:
-            new_state = f"{ev.summary} {today}"
-        self._attr_state = new_state
-        return new_state
 
     def write_ha_state(self, *args, **kwargs) -> None:
         """覆盖 HA 的 write_ha_state，强制 _attr_available 为 True。
