@@ -37,6 +37,7 @@ from .const import (
     CONF_ENABLED_CUSTOM,
     WEEKDAY_NAMES,
     DOMAIN_DISPLAY_NAME,
+    MAKEUP_KEYWORD,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -45,10 +46,13 @@ SCAN_INTERVAL = timedelta(minutes=60)
 
 @dataclass
 class DayInfo:
-    """今天的信息数据类 - 全部为布尔标志，详细信息在属性中"""
+    """今天的信息数据类 - 布尔标志 + 事件列表。
+
+    weekday_name / event_names / primary_event 是派生字段，
+    由 weekday 和 events 计算得到，不重复存储。
+    """
     date: str
     weekday: int
-    weekday_name: str
     is_workday: bool
     is_holiday: bool
     is_weekend: bool
@@ -57,8 +61,18 @@ class DayInfo:
     is_custom_holiday: bool
     day_type: str = ""
     events: List[Dict] = field(default_factory=list)
-    event_names: List[str] = field(default_factory=list)
-    primary_event: str = ""
+
+    @property
+    def weekday_name(self) -> str:
+        return WEEKDAY_NAMES[self.weekday]
+
+    @property
+    def event_names(self) -> List[str]:
+        return [e["name"] for e in self.events]
+
+    @property
+    def primary_event(self) -> str:
+        return self.events[0]["name"] if self.events else ""
 
 
 class SmartWorkdayDataManager:
@@ -175,6 +189,54 @@ class SmartWorkdayDataManager:
         _LOGGER.warning("未找到 uid=%s 的假期条目", uid)
         return False
 
+    def iter_enabled_items(self, data: Optional[Dict] = None) -> List[tuple]:
+        """遍历所有启用的分类条目，返回 (category, item) 元组列表。
+
+        - category 取值：'holiday'（含调休） / 'student' / 'custom'
+        - 应用顶层开关 + student 条目级 enabled 双重过滤
+        - 统一去重：只返回 dict 类型、字段完整的条目
+
+        供 get_today_events（判定 flags）与 calendar 事件构建（构造 CalendarEvent）复用。
+        """
+        if data is None:
+            data = self._data_cache or {}
+
+        results: List[tuple] = []
+
+        # 法定假期（顶层开关控制）
+        if self._enabled_flags.get(CONF_ENABLED_LEGAL, True):
+            for item in data.get("holidays", []):
+                if isinstance(item, dict):
+                    results.append(("holiday", item))
+
+        # 学生假期（顶层开关 + 条目 enabled 双重控制）
+        if self._enabled_flags.get(CONF_ENABLED_STUDENT, True):
+            for item in data.get("studentdays", []):
+                if isinstance(item, dict) and item.get("enabled", True):
+                    results.append(("student", item))
+
+        # 自定义假期（顶层开关控制）
+        if self._enabled_flags.get(CONF_ENABLED_CUSTOM, True):
+            for item in data.get("customdays", []):
+                if isinstance(item, dict):
+                    results.append(("custom", item))
+
+        return results
+
+    @staticmethod
+    def _item_matches_date(item: Dict, check_date: date) -> bool:
+        """判断条目是否覆盖 check_date（支持 date 单日型与 start/end 范围型）"""
+        try:
+            if "date" in item:
+                return item["date"] == check_date.isoformat()
+            if "start" in item and "end" in item:
+                start = datetime.strptime(item["start"], "%Y-%m-%d").date()
+                end = datetime.strptime(item["end"], "%Y-%m-%d").date()
+                return start <= check_date <= end
+        except Exception as e:
+            _LOGGER.debug("日期匹配错误: %s", e)
+        return False
+
     def get_today_events(self, check_date: Optional[date] = None,
                          data: Optional[Dict] = None) -> List[Dict]:
         """获取指定日期的所有事件（顶层开关关闭的分类被跳过）"""
@@ -183,55 +245,27 @@ class SmartWorkdayDataManager:
         if data is None:
             data = self._data_cache or {}
 
-        events = []
-
-        def is_match(date_obj: date, item: Dict) -> bool:
-            try:
-                if "date" in item:
-                    return item["date"] == date_obj.isoformat()
-                elif "start" in item and "end" in item:
-                    start = datetime.strptime(item["start"], "%Y-%m-%d").date()
-                    end = datetime.strptime(item["end"], "%Y-%m-%d").date()
-                    return start <= date_obj <= end
-            except Exception as e:
-                _LOGGER.debug("日期匹配错误: %s", e)
-            return False
-
-        # 法定假期（顶层开关控制）
-        if self._enabled_flags.get(CONF_ENABLED_LEGAL, True):
-            for item in data.get("holidays", []):
-                if not isinstance(item, dict):
-                    continue
-                if is_match(check_date, item):
-                    events.append({
-                        "name": item.get("name", "节假日"),
-                        "type": "holiday" if "调休" not in item.get("name", "") else "special",
-                    })
-
-        # 自定义假期（顶层开关控制）
-        if self._enabled_flags.get(CONF_ENABLED_CUSTOM, True):
-            for item in data.get("customdays", []):
-                if not isinstance(item, dict):
-                    continue
-                if is_match(check_date, item):
-                    events.append({
-                        "name": item.get("name", "自定义假期"),
-                        "type": "custom",
-                    })
-
-        # 学生假期（顶层开关 + 条目 enabled 双重控制）
-        if self._enabled_flags.get(CONF_ENABLED_STUDENT, True):
-            for item in data.get("studentdays", []):
-                if not isinstance(item, dict):
-                    continue
-                if not item.get("enabled", True):
-                    continue
-                if is_match(check_date, item):
-                    events.append({
-                        "name": item.get("name", "学生假期"),
-                        "type": "student",
-                    })
-
+        events: List[Dict] = []
+        for category, item in self.iter_enabled_items(data):
+            if not self._item_matches_date(item, check_date):
+                continue
+            # 法定假期中，名称含"调休"视为调休上班（special）
+            if category == "holiday":
+                is_makeup = MAKEUP_KEYWORD in item.get("name", "")
+                events.append({
+                    "name": item.get("name", "节假日"),
+                    "type": "special" if is_makeup else "holiday",
+                })
+            elif category == "student":
+                events.append({
+                    "name": item.get("name", "学生假期"),
+                    "type": "student",
+                })
+            else:  # custom
+                events.append({
+                    "name": item.get("name", "自定义假期"),
+                    "type": "custom",
+                })
         return events
 
     def analyze_day(self, today: date, events: List[Dict]) -> DayInfo:
@@ -243,10 +277,8 @@ class SmartWorkdayDataManager:
         - 法定假期 + 周六同天：is_holiday=True 且 is_weekend=True（并列）
         """
         flags = {"holiday": False, "special": False, "custom": False, "student": False}
-        event_names = []
 
         for e in events:
-            event_names.append(e["name"])
             if e["type"] == "holiday":
                 flags["holiday"] = True
             elif e["type"] == "special":
@@ -288,7 +320,6 @@ class SmartWorkdayDataManager:
         return DayInfo(
             date=today.isoformat(),
             weekday=today.weekday(),
-            weekday_name=WEEKDAY_NAMES[today.weekday()],
             is_workday=is_workday,
             is_holiday=is_holiday,
             is_weekend=is_weekend,
@@ -297,8 +328,6 @@ class SmartWorkdayDataManager:
             is_custom_holiday=is_custom_holiday,
             day_type=day_type,
             events=events,
-            event_names=list(dict.fromkeys(event_names)),
-            primary_event=event_names[0] if event_names else "",
         )
 
     def get_upcoming_days(self, today: date, days: int = 7,

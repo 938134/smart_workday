@@ -10,7 +10,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.15.4"
+VERSION: Final = "2.16.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -72,16 +72,7 @@ EVENT_SOURCE_STUDENT: Final = "🎓 学生假期"
 EVENT_SOURCE_CUSTOM: Final = "⭐ 自定义假期"
 EVENT_SOURCE_MAKEUP: Final = "💼 调休上班日"
 
-# description 前缀 → 数据分类键（用于从单日历删除事件时推断分类）
-SOURCE_TO_CATEGORY: Final = {
-    EVENT_SOURCE_LEGAL: "holidays",
-    EVENT_SOURCE_MAKEUP: "holidays",
-    EVENT_SOURCE_STUDENT: "studentdays",
-    EVENT_SOURCE_CUSTOM: "customdays",
-}
-
-# 日历 UI 手动添加事件时，根据名称关键词推断分类（仅法定日历需要，用于区分调休）
-STUDENT_HOLIDAY_KEYWORDS: Final = ("寒假", "暑假", "春假", "秋假", "儿童节", "学生")
+# 日历 UI 手动添加事件时，根据名称关键词推断分类（用于区分调休）
 MAKEUP_KEYWORD: Final = "调休"
 
 

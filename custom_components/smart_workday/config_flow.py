@@ -41,6 +41,27 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# 3 个顶层启用开关的字段名（用于在 schema 构造时循环，避免散落在多处）
+_SWITCH_KEYS = (CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM)
+
+
+def _switch_schema(defaults: Optional[Dict[str, bool]] = None) -> Dict:
+    """构造 3 个顶层开关的 vol.Schema 字段映射。
+
+    供 ConfigFlow（首次添加，全部默认 True）与 OptionsFlow.toggle_switch
+    （按当前 entry.data 回填）共用，避免同一份 schema 定义重复两次。
+    """
+    defaults = defaults or {}
+    return {
+        vol.Required(key, default=defaults.get(key, True)): selector.BooleanSelector()
+        for key in _SWITCH_KEYS
+    }
+
+
+def _parse_switch_input(user_input: Dict[str, Any]) -> Dict[str, bool]:
+    """从 user_input 提取 3 个开关的值（ConfigFlow / OptionsFlow 通用）。"""
+    return {key: bool(user_input[key]) for key in _SWITCH_KEYS}
+
 
 # ============================================================
 # ConfigFlow - 首次添加集成（名称 + 3 个顶层开关）
@@ -67,20 +88,15 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
         """唯一一步：集成名称 + 3 个顶层启用开关"""
         if user_input is not None:
             name = (user_input.get(CONF_NAME) or DEFAULT_NAME).strip() or DEFAULT_NAME
-            return self.async_create_entry(title=name, data={
-                CONF_NAME: name,
-                CONF_ENABLED_LEGAL: bool(user_input[CONF_ENABLED_LEGAL]),
-                CONF_ENABLED_STUDENT: bool(user_input[CONF_ENABLED_STUDENT]),
-                CONF_ENABLED_CUSTOM: bool(user_input[CONF_ENABLED_CUSTOM]),
-            })
+            data = {CONF_NAME: name}
+            data.update(_parse_switch_input(user_input))
+            return self.async_create_entry(title=name, data=data)
 
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
-                vol.Required(CONF_ENABLED_LEGAL, default=True): selector.BooleanSelector(),
-                vol.Required(CONF_ENABLED_STUDENT, default=True): selector.BooleanSelector(),
-                vol.Required(CONF_ENABLED_CUSTOM, default=True): selector.BooleanSelector(),
+                **_switch_schema(defaults={k: True for k in _SWITCH_KEYS}),
             }),
             description_placeholders={
                 "tips": (
@@ -165,23 +181,14 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         """开关管理：一次改 3 个开关"""
         if user_input is not None:
             new_data = dict(self.config_entry.data)
-            new_data[CONF_ENABLED_LEGAL] = bool(user_input[CONF_ENABLED_LEGAL])
-            new_data[CONF_ENABLED_STUDENT] = bool(user_input[CONF_ENABLED_STUDENT])
-            new_data[CONF_ENABLED_CUSTOM] = bool(user_input[CONF_ENABLED_CUSTOM])
+            new_data.update(_parse_switch_input(user_input))
             self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
             return await self.async_step_init()
 
         flags = self._get_flags()
         return self.async_show_form(
             step_id="toggle_switch",
-            data_schema=vol.Schema({
-                vol.Required(CONF_ENABLED_LEGAL, default=flags[CONF_ENABLED_LEGAL]):
-                    selector.BooleanSelector(),
-                vol.Required(CONF_ENABLED_STUDENT, default=flags[CONF_ENABLED_STUDENT]):
-                    selector.BooleanSelector(),
-                vol.Required(CONF_ENABLED_CUSTOM, default=flags[CONF_ENABLED_CUSTOM]):
-                    selector.BooleanSelector(),
-            }),
+            data_schema=vol.Schema(_switch_schema(defaults=flags)),
             description_placeholders={
                 "tips": "⚙️ **开关管理**\n"
                         "📅 法定假期：启用后自动从国务院通知导入当年数据\n"
