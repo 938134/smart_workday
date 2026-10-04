@@ -6,7 +6,7 @@
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as date_type
 from typing import List, Optional
 from zoneinfo import ZoneInfo
 
@@ -62,9 +62,9 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
     # ---------- 事件构建 ----------
 
     @staticmethod
-    def _parse_date(value) -> Optional[datetime.date]:
+    def _parse_date(value) -> Optional[date_type]:
         """解析 YYYY-MM-DD 字符串为 date（兼容 date 对象传入）"""
-        if isinstance(value, datetime.date):
+        if isinstance(value, date_type):
             return value
         if isinstance(value, str):
             try:
