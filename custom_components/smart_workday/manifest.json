@@ -9,5 +9,5 @@
   "iot_class": "local_polling",
   "minimum_ha_version": "2023.9",
   "requirements": ["pyyaml>=6.0"],
-  "version": "2.15.2"
+  "version": "2.15.3"
 }

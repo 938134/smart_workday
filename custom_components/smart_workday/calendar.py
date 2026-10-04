@@ -82,16 +82,22 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     @property
     def state(self) -> str:
-        """同步 _attr_state，确保 HA 历史系统拿到有意义的字符串。
+        """同步 _attr_state，确保 HA 历史系统每天都能捕获到状态变化。
 
-        ⚠️ HA 2026.5+：Entity.state 变成从 _attr_state 读取，
-        且历史系统直接写 _attr_state，不通过 state property。
-        所以在 __init__ 里初始化 _attr_state="空闲"，
-        并在这里同步更新，让活动/历史页面显示"空闲"或当前事件名，
-        而不是 None → unavailable。
+        ⚠️ HA 历史系统只在 state 变化时写入记录。
+        如果 state 一直是"空闲"，历史系统不会记录。
+        所以在 state 里加上日期，让每天自动变化。
+
+        格式：
+        - 无事件 → "空闲 2026-10-04"
+        - 有事件 → "国庆节 2026-10-04"
         """
         ev = self.event
-        new_state = "空闲" if ev is None else ev.summary
+        today = dt.now().date().isoformat()
+        if ev is None:
+            new_state = f"空闲 {today}"
+        else:
+            new_state = f"{ev.summary} {today}"
         if self._attr_state != new_state:
             self._attr_state = new_state
         return new_state
@@ -302,10 +308,12 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             return None
 
     async def async_update(self) -> None:
-        """更新日历事件（由 HA 按需调用；CalendarEntity 通常不主动 poll）"""
+        """更新日历事件并主动写入 state，确保历史系统捕获到每日变化。"""
         try:
             self._event_list = await self._generate_events()
             _LOGGER.debug("async_update 完成，共 %d 个事件", len(self._event_list))
+            # 主动写入 state，确保 HA 历史系统捕捉到每日日期变化
+            self.async_write_ha_state()
         except Exception as e:
             _LOGGER.error("更新日历失败: %s", e)
 
