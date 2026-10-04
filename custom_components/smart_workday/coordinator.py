@@ -30,6 +30,11 @@ from .const import (
     WEEKDAY_NAMES,
     DOMAIN_DISPLAY_NAME,
     MAKEUP_KEYWORD,
+    KEY_HOLIDAYS,
+    KEY_STUDENTDAYS,
+    KEY_CUSTOMDAYS,
+    CALENDAR_KEYS,
+    empty_calendar_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,7 +94,12 @@ class SmartWorkdayDataManager:
             self._enabled_flags[key] = bool(entry_data[key])
 
     async def load_calendar_data(self, force_reload: bool = False) -> Dict:
-        """从 Store 加载数据（带 1 分钟缓存）"""
+        """从 Store 加载数据（带 1 分钟缓存）。
+
+        强制补齐 holidays/studentdays/customdays 三个键 —— 老版本升级或半写入的
+        Store 数据可能缺字段，不补齐会让 iter_enabled_items 直接 KeyError，
+        进而让 _async_update_data 抛 UpdateFailed，导致所有 sensor 变 unavailable。
+        """
         now = dt.now()
 
         if not force_reload and self._data_cache and self._last_loaded:
@@ -99,7 +109,9 @@ class SmartWorkdayDataManager:
         try:
             data = await self._store.async_load()
             if not data:
-                data = {"holidays": [], "studentdays": [], "customdays": []}
+                data = empty_calendar_data()
+            for key in CALENDAR_KEYS:
+                data.setdefault(key, [])
 
             self._data_cache = data
             self._last_loaded = now
@@ -107,7 +119,7 @@ class SmartWorkdayDataManager:
 
         except Exception as e:
             _LOGGER.error("加载数据失败: %s", e)
-            return {"holidays": [], "customdays": [], "studentdays": []}
+            return empty_calendar_data()
 
     async def _async_save_sync(self, data: Optional[Dict] = None) -> bool:
         """保存数据到 Store"""
@@ -116,8 +128,8 @@ class SmartWorkdayDataManager:
         if data is None:
             return False
         try:
-            for key in ("holidays", "customdays", "studentdays"):
-                data[key].sort(key=lambda x: x.get("date") or x.get("start", ""))
+            for key in CALENDAR_KEYS:
+                data.setdefault(key, []).sort(key=lambda x: x.get("date") or x.get("start", ""))
             await self._store.async_save(data)
             self._data_cache = None
             self._last_loaded = None
@@ -168,24 +180,24 @@ class SmartWorkdayDataManager:
         供 get_today_events（判定 flags）与 calendar 事件构建（构造 CalendarEvent）复用。
         """
         if data is None:
-            data = self._data_cache or {"holidays": [], "studentdays": [], "customdays": []}
+            data = self._data_cache or empty_calendar_data()
 
         results: List[tuple] = []
 
         # 法定假期（顶层开关控制）
         if self._enabled_flags[CONF_ENABLED_LEGAL]:
-            for item in data["holidays"]:
+            for item in data[KEY_HOLIDAYS]:
                 results.append(("holiday", item))
 
         # 学生假期（顶层开关 + 条目 enabled 双重控制）
         if self._enabled_flags[CONF_ENABLED_STUDENT]:
-            for item in data["studentdays"]:
+            for item in data[KEY_STUDENTDAYS]:
                 if item.get("enabled", True):
                     results.append(("student", item))
 
         # 自定义假期（顶层开关控制）
         if self._enabled_flags[CONF_ENABLED_CUSTOM]:
-            for item in data["customdays"]:
+            for item in data[KEY_CUSTOMDAYS]:
                 results.append(("custom", item))
 
         return results
@@ -210,7 +222,7 @@ class SmartWorkdayDataManager:
         if check_date is None:
             check_date = dt.now().date()
         if data is None:
-            data = self._data_cache or {"holidays": [], "studentdays": [], "customdays": []}
+            data = self._data_cache or empty_calendar_data()
 
         events: List[Dict] = []
         for category, item in self.iter_enabled_items(data):
@@ -295,7 +307,7 @@ class SmartWorkdayDataManager:
                           data: Optional[Dict] = None) -> List[Dict]:
         """获取未来几天信息"""
         if data is None:
-            data = self._data_cache or {"holidays": [], "studentdays": [], "customdays": []}
+            data = self._data_cache or empty_calendar_data()
         upcoming = []
         for i in range(1, days + 1):
             future = today + timedelta(days=i)

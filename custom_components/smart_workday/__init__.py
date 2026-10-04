@@ -15,6 +15,7 @@ from .const import (
     DEFAULT_LEGAL_YEAR,
     CONF_ENABLED_LEGAL,
     LEGAL_HOLIDAY_PRESETS,
+    empty_calendar_data,
 )
 from .coordinator import (
     SmartWorkdayDataManager, SmartWorkdayCoordinator,
@@ -35,7 +36,7 @@ async def _auto_import_legal_if_empty(hass: HomeAssistant, store: Store, entry: 
     try:
         data = await store.async_load()
         if not data:
-            data = {"holidays": [], "studentdays": [], "customdays": []}
+            data = empty_calendar_data()
         if data["holidays"]:
             return  # 已有数据，不覆盖
 

@@ -37,6 +37,7 @@ from .const import (
     CONF_START_DATE,
     CONF_END_DATE,
     CONF_CUSTOM_NAME,
+    empty_calendar_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): selector.TextSelector(),
-                **_switch_schema(defaults={k: True for k in _SWITCH_KEYS}),
+                **_switch_schema(),
             }),
             description_placeholders={
                 "tips": (
@@ -297,4 +298,4 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         try:
             return await self._get_data_manager().load_calendar_data()
         except Exception:
-            return {"holidays": [], "studentdays": [], "customdays": []}
+            return empty_calendar_data()

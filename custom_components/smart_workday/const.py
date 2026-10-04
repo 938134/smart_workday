@@ -10,10 +10,24 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.18.7"
+VERSION: Final = "2.19.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
+
+# Store 数据结构的三个字段名（唯一权威来源）
+KEY_HOLIDAYS: Final = "holidays"
+KEY_STUDENTDAYS: Final = "studentdays"
+KEY_CUSTOMDAYS: Final = "customdays"
+CALENDAR_KEYS: Final = (KEY_HOLIDAYS, KEY_STUDENTDAYS, KEY_CUSTOMDAYS)
+
+# 空日历数据工厂（每次调用返回新字典，避免共享可变对象）
+def empty_calendar_data() -> Dict[str, List[Dict[str, Any]]]:
+    return {
+        KEY_HOLIDAYS: [],
+        KEY_STUDENTDAYS: [],
+        KEY_CUSTOMDAYS: [],
+    }
 
 
 # ============================================================

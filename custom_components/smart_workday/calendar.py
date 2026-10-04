@@ -69,7 +69,6 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_unique_id = f"{coordinator.entry_id}{CALENDAR_UNIQUE_SUFFIX}"
         self._attr_name = CALENDAR_ENTITY_NAME
         self._attr_device_info = device_info
-        self._attr_sw_version = VERSION
         self._attr_icon = "mdi:calendar-month"
         self._event_list: List[CalendarEvent] = []
         # ⚠️ 关键：显式设初始 state 让 HA 历史系统从启动就有值（None 会记为 unavailable）

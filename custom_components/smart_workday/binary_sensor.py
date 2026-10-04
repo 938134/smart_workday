@@ -11,6 +11,12 @@ v2.15.0 起，用 4 个 binary_sensor 替代旧的单个 sensor：
 方便在 Dashboard 卡片上展示详细信息。
 
 v2.18.0：改用 coordinator.data["day_info"] 对象直接访问，SENSOR_DEFS 数据驱动。
+
+v2.19.0：显式覆盖 `available` property 返回 True，与 calendar 一致。
+    防止 coordinator.last_update_success 抖动（例如 _async_update_data
+    因 Store 缺字段抛 UpdateFailed）导致所有 sensor 集体变 unavailable。
+    同时清理冗余：删除从未读取的 sensor_key 列、_attr_should_poll（CoordinatorEntity
+    默认 False）、_attr_sw_version（DeviceInfo 已带，实体级被忽略）。
 """
 
 import logging
@@ -44,12 +50,12 @@ from .coordinator import SmartWorkdayCoordinator, DayInfo
 
 _LOGGER = logging.getLogger(__name__)
 
-# (sensor_key, entity_name, icon, unique_suffix, DayInfo 属性名)
-SENSOR_DEFS: List[Tuple[str, str, str, str, str]] = [
-    (ATTR_IS_WORKDAY, BINARY_SENSOR_IS_WORKDAY, "mdi:briefcase-check", "is_workday", "is_workday"),
-    (ATTR_IS_HOLIDAY, BINARY_SENSOR_IS_HOLIDAY, "mdi:calendar-check", "is_holiday", "is_holiday"),
-    (ATTR_IS_STUDENT_HOLIDAY, BINARY_SENSOR_IS_STUDENT_HOLIDAY, "mdi:school", "is_student_holiday", "is_student_holiday"),
-    (ATTR_IS_CUSTOM_HOLIDAY, BINARY_SENSOR_IS_CUSTOM_HOLIDAY, "mdi:star", "is_custom_holiday", "is_custom_holiday"),
+# (entity_name, icon, unique_suffix, DayInfo 属性名)
+SENSOR_DEFS: List[Tuple[str, str, str, str]] = [
+    (BINARY_SENSOR_IS_WORKDAY, "mdi:briefcase-check", "is_workday", "is_workday"),
+    (BINARY_SENSOR_IS_HOLIDAY, "mdi:calendar-check", "is_holiday", "is_holiday"),
+    (BINARY_SENSOR_IS_STUDENT_HOLIDAY, "mdi:school", "is_student_holiday", "is_student_holiday"),
+    (BINARY_SENSOR_IS_CUSTOM_HOLIDAY, "mdi:star", "is_custom_holiday", "is_custom_holiday"),
 ]
 
 
@@ -61,26 +67,34 @@ class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_should_poll = False
 
     def __init__(
         self,
         coordinator: SmartWorkdayCoordinator,
         device_info: DeviceInfo,
-        sensor_key: str,
         entity_name: str,
         icon: str,
         unique_suffix: str,
         day_info_attr: str,
     ):
         super().__init__(coordinator)
-        self._sensor_key = sensor_key
         self._day_info_attr = day_info_attr
         self._attr_unique_id = f"{coordinator.entry_id}_{unique_suffix}"
         self._attr_name = entity_name
         self._attr_device_info = device_info
-        self._attr_sw_version = VERSION
         self._attr_icon = icon
+
+    @property
+    def available(self) -> bool:
+        """显式返回 True：即便 coordinator 刷新失败，sensor 也不变 unavailable。
+
+        与 calendar 的 available 覆盖保持一致。
+        _get_day_info 里已经做了兜底：day_info 缺失时 is_on 返回 False，
+        所以即使 last_update_success=False，sensor 仍可读到一个合理的状态。
+        同步 _attr_available=True 防止 HA write_ha_state 读到 False 就把 state 覆盖为 None。
+        """
+        self._attr_available = True
+        return True
 
     def _get_day_info(self) -> DayInfo | None:
         data = self.coordinator.data
