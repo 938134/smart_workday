@@ -58,6 +58,11 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_sw_version = VERSION
         self._attr_icon = "mdi:calendar-month"
         self._event_list: List[CalendarEvent] = []
+        # ⚠️ 关键：显式设 _attr_state 让 HA 历史系统能捕获到"空闲"字符串。
+        # HA 2026.5+ 中 Entity.state 已改为读取 _attr_state 字段，覆盖 state property
+        # 无效——历史系统直接看 _attr_state，None 会被记为 unavailable。
+        self._attr_state = "空闲"
+        self._attr_available = True
 
     # ---------- 时区 ----------
 
@@ -77,19 +82,19 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     @property
     def state(self) -> str:
-        """覆盖 CalendarEntity 默认 state=None，返回有意义的字符串。
+        """同步 _attr_state，确保 HA 历史系统拿到有意义的字符串。
 
-        ⚠️ 关键修复：CalendarEntity 默认 state=None，HA 2026.5+ 历史/活动页面
-        会把 None 显示为 "unavailable"，导致日历的日志全显示不可用。
-        这里返回 "空闲" 或当前事件名称，让活动页面能显示有意义的日志。
-
-        - 无事件 → "空闲"
-        - 有当前/未来事件 → 事件名称（如 "国庆节"）
+        ⚠️ HA 2026.5+：Entity.state 变成从 _attr_state 读取，
+        且历史系统直接写 _attr_state，不通过 state property。
+        所以在 __init__ 里初始化 _attr_state="空闲"，
+        并在这里同步更新，让活动/历史页面显示"空闲"或当前事件名，
+        而不是 None → unavailable。
         """
         ev = self.event
-        if ev is None:
-            return "空闲"
-        return ev.summary
+        new_state = "空闲" if ev is None else ev.summary
+        if self._attr_state != new_state:
+            self._attr_state = new_state
+        return new_state
 
     def _create_event(self, start_date, end_date, name: str, uid: str = "",
                       description: str = "",
