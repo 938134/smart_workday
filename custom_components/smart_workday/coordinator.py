@@ -33,8 +33,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-# 日历每天只变一次，60 分钟更新是浪费；25h 保证跨天覆盖
-SCAN_INTERVAL = timedelta(hours=25)
+# 60 分钟刷新：日历事件按天变化，但需保证 _event_list 缓存及时刷新
+# （25h 会让 calendar._event_list 长期停留在昨天的数据 → 跨天后 event property 拿不到当前事件）
+SCAN_INTERVAL = timedelta(minutes=60)
 
 
 @dataclass

@@ -2,7 +2,14 @@
 
 - 显示所有分类事件（法定/学生/自定义），description 标注来源
 - 仅支持 DELETE_EVENT（录入走 OptionsFlow 表单）
-- 数据从 coordinator.data["data"] 缓存读取，不独立加载 Store
+- 数据从 coordinator.data["data"] 缓存读取，兜底 _data_cache
+
+v2.18.5 关键修复：
+- 显式覆盖 `available` property 返回 True，
+  防止 coordinator 刷新失败时日历整块变"不可用"
+  （v2.16.0 误删了这个覆盖，是"日历不可用"的根本原因）
+- `_attr_state` / `_attr_available` 同步写入，
+  HA 2026.5+ 历史系统直接读取 _attr_state，None 会记为 unavailable
 """
 
 import logging
@@ -53,11 +60,25 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_sw_version = VERSION
         self._attr_icon = "mdi:calendar-month"
         self._event_list: List[CalendarEvent] = []
+        # ⚠️ 关键：显式设初始 state 让 HA 历史系统从启动就有值（None 会记为 unavailable）
+        self._attr_state = "空闲"
+        self._attr_available = True
         # 时区对象（HA 启动时确定）
         try:
             self._tz = ZoneInfo(self.hass.config.time_zone)
         except Exception:
             self._tz = ZoneInfo("UTC")
+
+    @property
+    def available(self) -> bool:
+        """显式返回 True：即使 coordinator 刷新失败，日历也不变 unavailable。
+
+        ⚠️ CoordinatorEntity 默认让 available 跟随 coordinator.last_update_success，
+        一旦 _async_update_data 抛 UpdateFailed，整个日历会变"不可用"。
+        日历的数据兜底走 data_manager._data_cache（不依赖 coordinator.data），
+        所以 coordinator 短暂失败不影响日历展示。
+        """
+        return True
 
     # ---------- 事件构建 ----------
 
@@ -147,7 +168,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         """返回当前/最近事件（三级优先级：进行中 > 未来 > 今天）
 
         优先读 _event_list 缓存（由 async_update 填充）；
-        缓存为空时直接同步构建，避免 HA 感知不到事件。
+        缓存为空时同步构建兜底，避免 HA 感知不到事件。
         """
         try:
             events = self._event_list
@@ -185,7 +206,7 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             return None
 
     async def async_update(self) -> None:
-        """CalendarEntity 请求时刷新事件缓存"""
+        """CalendarEntity 请求时刷新事件缓存 + 同步 _attr_state 让历史系统捕获"""
         try:
             data = self.coordinator.data.get("data") if self.coordinator.data else None
             if not data:
@@ -193,6 +214,12 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
             if not data:
                 return
             self._event_list = self._build_events(data)
+
+            # HA 2026.5+ 历史系统直接读 _attr_state，None 会记为 unavailable
+            current = self.event
+            new_state = current.summary if current else "空闲"
+            if getattr(self, "_attr_state", None) != new_state:
+                self._attr_state = new_state
         except Exception as e:
             _LOGGER.error("async_update 失败: %s", e, exc_info=True)
 
