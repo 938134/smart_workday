@@ -10,6 +10,15 @@ v2.18.5 关键修复：
   （v2.16.0 误删了这个覆盖，是"日历不可用"的根本原因）
 - `_attr_state` / `_attr_available` 同步写入，
   HA 2026.5+ 历史系统直接读取 _attr_state，None 会记为 unavailable
+
+v2.18.6 关键修复（活动详情/Logbook 显示"不可用"）：
+- 覆盖 `state` property：返回 "国庆节 2026-10-04" 格式（含日期后缀）
+  - HA Logbook 只在 state 变化时记录，日期后缀让每天零点自动变化
+  - 不覆盖时 HA CalendarEntity 默认返回 on/off，Logbook 只显示 on/off
+- 覆盖 `write_ha_state`：写状态前强制 `_attr_available=True`
+  - CoordinatorEntity 的 last_update_success 会间接污染 _attr_available
+  - 不强制会偶尔出现 state=None → Logbook 记为 unavailable
+- `available` property 内部同步设置 _attr_available=True（双保险）
 """
 
 import logging
@@ -77,8 +86,53 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         一旦 _async_update_data 抛 UpdateFailed，整个日历会变"不可用"。
         日历的数据兜底走 data_manager._data_cache（不依赖 coordinator.data），
         所以 coordinator 短暂失败不影响日历展示。
+
+        同步设置 _attr_available=True，防止 HA write_ha_state 读到 False 就把 state 覆盖为 unavailable。
         """
+        self._attr_available = True
         return True
+
+    @property
+    def state(self) -> str:
+        """覆盖 HA CalendarEntity 默认 state，让 Logbook 每天捕获状态变化。
+
+        返回格式：
+        - 有事件 → "国庆节 2026-10-04"
+        - 无事件 → "空闲 2026-10-04"
+
+        为什么需要日期后缀：
+        - HA Logbook 只在 state 变化时写入新记录
+        - 国庆节持续 7 天，若无日期后缀 state 一直相同 → Logbook 不记录
+        - 加日期 → 每天零点 state 自动变化 → Logbook 每天捕获一条
+
+        为什么需要覆盖 state property：
+        - HA CalendarEntity 的 state 默认可能是 on/off 字符串
+        - HA 2026.5+ 历史系统直接读取返回的字符串作为 Logbook 记录
+        - 若不覆盖，Logbook 只会显示 on/off，看不出是"国庆节"
+
+        ⚠️ 副作用：CalendarEntity.state 有 @final 装饰器，
+        覆盖会在日志打印一条 warning（不影响功能）。
+        """
+        self._attr_available = True  # 防止 HA 覆盖 state
+        today = dt.now().date().isoformat()
+        ev = self.event
+        if ev is None:
+            new_state = f"空闲 {today}"
+        else:
+            new_state = f"{ev.summary} {today}"
+        self._attr_state = new_state
+        return new_state
+
+    def write_ha_state(self, *args, **kwargs) -> None:
+        """覆盖 HA 的 write_ha_state，强制 _attr_available 为 True。
+
+        HA 2026.5+ 中 write_ha_state 直接读 _attr_available，
+        若为 False 会把 state 强制设为 None（Logbook 记为 unavailable）。
+        CoordinatorEntity 的 last_update_success 抖动会通过 MRO 间接污染 _attr_available，
+        所以每次写状态前强制重置为 True。
+        """
+        self._attr_available = True
+        super().write_ha_state(*args, **kwargs)
 
     # ---------- 事件构建 ----------
 
