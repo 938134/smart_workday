@@ -82,6 +82,17 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     # ---------- 事件构建 ----------
 
+    async def async_added_to_hass(self) -> None:
+        """【临时诊断】记录实体挂载瞬间的可用性 —— 定位"创建时不可用"，定位后移除。"""
+        await super().async_added_to_hass()
+        _LOGGER.warning(
+            "[SW-DIAG] %s 挂载: available=%s last_update_success=%s event=%s",
+            self._attr_name,
+            self.available,
+            self.coordinator.last_update_success,
+            self.event.summary if self.event else None,
+        )
+
     @staticmethod
     def _parse_date(value) -> Optional[date_type]:
         """解析 YYYY-MM-DD 字符串为 date（兼容 date 对象传入）"""
