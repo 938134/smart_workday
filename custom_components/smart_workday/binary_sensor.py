@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Tuple
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity import DeviceInfo, RestoreEntity
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -62,7 +62,7 @@ SENSOR_DEFS: List[Tuple[str, str, str, str]] = [
 ]
 
 
-class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
+class SmartWorkdayBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEntity):
     """通用工作日/假期布尔传感器。
 
     通过 day_info_attr 属性名从 coordinator.data["day_info"] 读取布尔值。
