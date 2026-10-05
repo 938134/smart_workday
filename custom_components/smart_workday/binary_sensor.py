@@ -12,11 +12,14 @@ v2.15.0 起，用 4 个 binary_sensor 替代旧的单个 sensor：
 
 v2.18.0：改用 coordinator.data["day_info"] 对象直接访问，SENSOR_DEFS 数据驱动。
 
-v2.19.0：显式覆盖 `available` property 返回 True，与 calendar 一致。
-    防止 coordinator.last_update_success 抖动（例如 _async_update_data
-    因 Store 缺字段抛 UpdateFailed）导致所有 sensor 集体变 unavailable。
-    同时清理冗余：删除从未读取的 sensor_key 列、_attr_should_poll（CoordinatorEntity
-    默认 False）、_attr_sw_version（DeviceInfo 已带，实体级被忽略）。
+v2.19.0：清理冗余 —— 删除从未读取的 sensor_key 列、_attr_should_poll
+    （CoordinatorEntity 默认 False）、_attr_sw_version（DeviceInfo 已带，实体级被忽略）。
+
+v2.20.1：删除 available / write_ha_state 覆盖。coordinator.load_calendar_data
+    已用 setdefault 兜底补齐 Store 缺失字段，_async_update_data 不会再因
+    Store 结构问题抛 UpdateFailed，实体层不再需要强制 available=True。
+    实体可用性回归 HA 标准行为（跟随 coordinator.last_update_success），
+    用户/自动化也可通过 HA 工具正常设置状态。
 """
 
 import logging
@@ -83,29 +86,6 @@ class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._attr_name = entity_name
         self._attr_device_info = device_info
         self._attr_icon = icon
-
-    @property
-    def available(self) -> bool:
-        """显式返回 True：即便 coordinator 刷新失败，sensor 也不变 unavailable。
-
-        与 calendar 的 available 覆盖保持一致。
-        _get_day_info 里已经做了兜底：day_info 缺失时 is_on 返回 False，
-        所以即使 last_update_success=False，sensor 仍可读到一个合理的状态。
-        同步 _attr_available=True 防止 HA write_ha_state 读到 False 就把 state 覆盖为 None。
-        """
-        self._attr_available = True
-        return True
-
-    def write_ha_state(self, *args, **kwargs) -> None:
-        """覆盖 HA 的 write_ha_state，强制 _attr_available 为 True。
-
-        HA 2026.5+ 中 write_ha_state 直接读 _attr_available（不走 available property），
-        若为 False 会把 state 强制设为 None（Logbook 记为 unavailable）。
-        CoordinatorEntity 的 last_update_success 抖动会通过 MRO 间接污染 _attr_available，
-        所以每次写状态前强制重置为 True。与 calendar.write_ha_state 保持一致。
-        """
-        self._attr_available = True
-        super().write_ha_state(*args, **kwargs)
 
     def _get_day_info(self) -> DayInfo | None:
         data = self.coordinator.data

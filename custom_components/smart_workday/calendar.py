@@ -17,11 +17,14 @@ v2.18.6 尝试失败：
 
 v2.18.7 修复（回退 state 覆盖）：
 - 删除 state property 覆盖（HA CalendarEntity.state 有 @final，覆盖有副作用）
-- 保留 write_ha_state 覆盖：写状态前强制 _attr_available=True
-  防止 CoordinatorEntity.last_update_success 抖动污染 _attr_available
-- 保留 available property 覆盖：返回 True + 内部同步 _attr_available=True
 - 依赖 __init__ 里 _attr_state="空闲" + async_update 里同步 _attr_state
   让 HA 走默认 state 处理，Logbook 记录 "空闲"/"国庆节" 字符串
+
+v2.20.1：删除 available / write_ha_state 覆盖。
+- coordinator.load_calendar_data 已用 setdefault 兜底补齐 Store 缺失字段，
+  _async_update_data 不会再因 Store 结构问题抛 UpdateFailed。
+- 实体可用性回归 HA 标准行为（跟随 coordinator.last_update_success）。
+- 用户/自动化可通过 HA 工具（event/calendar 服务）正常设置实体状态。
 """
 
 import logging
@@ -71,39 +74,11 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         self._attr_device_info = device_info
         self._attr_icon = "mdi:calendar-month"
         self._event_list: List[CalendarEvent] = []
-        # ⚠️ 关键：显式设初始 state 让 HA 历史系统从启动就有值（None 会记为 unavailable）
-        self._attr_state = "空闲"
-        self._attr_available = True
         # 时区对象（HA 启动时确定）
         try:
             self._tz = ZoneInfo(self.hass.config.time_zone)
         except Exception:
             self._tz = ZoneInfo("UTC")
-
-    @property
-    def available(self) -> bool:
-        """显式返回 True：即使 coordinator 刷新失败，日历也不变 unavailable。
-
-        ⚠️ CoordinatorEntity 默认让 available 跟随 coordinator.last_update_success，
-        一旦 _async_update_data 抛 UpdateFailed，整个日历会变"不可用"。
-        日历的数据兜底走 data_manager._data_cache（不依赖 coordinator.data），
-        所以 coordinator 短暂失败不影响日历展示。
-
-        同步设置 _attr_available=True，防止 HA write_ha_state 读到 False 就把 state 覆盖为 unavailable。
-        """
-        self._attr_available = True
-        return True
-
-    def write_ha_state(self, *args, **kwargs) -> None:
-        """覆盖 HA 的 write_ha_state，强制 _attr_available 为 True。
-
-        HA 2026.5+ 中 write_ha_state 直接读 _attr_available，
-        若为 False 会把 state 强制设为 None（Logbook 记为 unavailable）。
-        CoordinatorEntity 的 last_update_success 抖动会通过 MRO 间接污染 _attr_available，
-        所以每次写状态前强制重置为 True。
-        """
-        self._attr_available = True
-        super().write_ha_state(*args, **kwargs)
 
     # ---------- 事件构建 ----------
 
