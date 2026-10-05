@@ -91,21 +91,6 @@ class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
         data = self.coordinator.data
         return data.get("day_info") if data else None
 
-    async def async_added_to_hass(self) -> None:
-        """【临时诊断】记录实体挂载瞬间的可用性 —— 定位"创建时不可用"，定位后移除。
-
-        此回调在 HA 第一次写入实体状态之前执行，所以打印的 available
-        就是该实体即将写入状态机时读到的值。
-        """
-        await super().async_added_to_hass()
-        _LOGGER.warning(
-            "[SW-DIAG] %s 挂载: available=%s last_update_success=%s has_data=%s",
-            self._attr_name,
-            self.available,
-            self.coordinator.last_update_success,
-            bool(self.coordinator.data),
-        )
-
     @property
     def is_on(self) -> bool:
         """返回布尔值：True 表示该标志为真（on），False 表示为假（off）"""

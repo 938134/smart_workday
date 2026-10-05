@@ -158,20 +158,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 初始化协调器
     coordinator = SmartWorkdayCoordinator(hass, entry.entry_id, data_manager)
 
-    # 【临时诊断】定位"实体创建时不可用"—— HA 重启场景专用，定位后移除
-    _LOGGER.warning(
-        "[SW-DIAG] setup 开始: entry=%s hass_state=%s",
-        entry.entry_id, hass.state,
-    )
-
     await coordinator.async_config_entry_first_refresh()
-
-    # 【临时诊断】首刷后的 coordinator 状态（available 的唯一来源）
-    _LOGGER.warning(
-        "[SW-DIAG] 首刷完成: last_update_success=%s data_keys=%s",
-        coordinator.last_update_success,
-        sorted(coordinator.data) if isinstance(coordinator.data, dict) else type(coordinator.data).__name__,
-    )
 
     # 存储数据
     hass.data.setdefault(DOMAIN, {})
@@ -184,12 +171,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 设置平台
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-
-    # 【临时诊断】平台加载完成（此时实体已创建并写过一次状态）
-    _LOGGER.warning(
-        "[SW-DIAG] 平台加载完成: entry=%s last_update_success=%s hass_state=%s",
-        entry.entry_id, coordinator.last_update_success, hass.state,
-    )
 
     return True
 
