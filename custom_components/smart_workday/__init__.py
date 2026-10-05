@@ -5,7 +5,6 @@ import uuid
 from datetime import date
 from typing import Dict, List, Tuple
 
-from homeassistant import __version__ as HA_VERSION
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
@@ -161,8 +160,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 【临时诊断】定位"实体创建时不可用"—— HA 重启场景专用，定位后移除
     _LOGGER.warning(
-        "[SW-DIAG] setup 开始: entry=%s HA=%s hass_state=%s",
-        entry.entry_id, HA_VERSION, hass.state,
+        "[SW-DIAG] setup 开始: entry=%s hass_state=%s",
+        entry.entry_id, hass.state,
     )
 
     await coordinator.async_config_entry_first_refresh()
