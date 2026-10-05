@@ -96,6 +96,17 @@ class SmartWorkdayBinarySensor(CoordinatorEntity, BinarySensorEntity):
         self._attr_available = True
         return True
 
+    def write_ha_state(self, *args, **kwargs) -> None:
+        """覆盖 HA 的 write_ha_state，强制 _attr_available 为 True。
+
+        HA 2026.5+ 中 write_ha_state 直接读 _attr_available（不走 available property），
+        若为 False 会把 state 强制设为 None（Logbook 记为 unavailable）。
+        CoordinatorEntity 的 last_update_success 抖动会通过 MRO 间接污染 _attr_available，
+        所以每次写状态前强制重置为 True。与 calendar.write_ha_state 保持一致。
+        """
+        self._attr_available = True
+        super().write_ha_state(*args, **kwargs)
+
     def _get_day_info(self) -> DayInfo | None:
         data = self.coordinator.data
         return data.get("day_info") if data else None

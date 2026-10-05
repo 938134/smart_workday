@@ -4,13 +4,12 @@
 manifest.json 需手动同步（HA 无法从 const.py 动态读取）。
 """
 
-from datetime import datetime
 from typing import Any, Final, Dict, List
 
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "2.19.0"
+VERSION: Final = "2.20.0"
 
 # 存储版本号（Store JSON 持久化）
 STORAGE_VERSION: Final = 1
@@ -91,73 +90,20 @@ MAKEUP_KEYWORD: Final = "调休"
 
 
 # ============================================================
-# 预置法定假期数据（国务院通知，按需扩展年份）
+# chinese_calendar 库英文假期名 → 中文显示名映射
+# v2.20.0 起改用 chinese-calendar 库替代硬编码 LEGAL_HOLIDAY_PRESETS，
+# 本映射保证 UI 上仍是中文假期名（如 "国庆节" 而非 "National Day"）。
 # ============================================================
-LEGAL_HOLIDAY_PRESETS: Dict[int, List[Dict[str, Any]]] = {
-    2026: [
-        {"name": "元旦", "date": "2026-01-01"},
-        {"name": "元旦", "date": "2026-01-02"},
-        {"name": "春节调休上班", "date": "2026-02-14"},
-        {"name": "春节", "date": "2026-02-16"},
-        {"name": "春节", "date": "2026-02-17"},
-        {"name": "春节", "date": "2026-02-18"},
-        {"name": "春节", "date": "2026-02-19"},
-        {"name": "春节", "date": "2026-02-20"},
-        {"name": "春节", "date": "2026-02-21"},
-        {"name": "春节", "date": "2026-02-22"},
-        {"name": "春节调休上班", "date": "2026-02-28"},
-        {"name": "清明节", "date": "2026-04-04"},
-        {"name": "清明节", "date": "2026-04-05"},
-        {"name": "清明节", "date": "2026-04-06"},
-        {"name": "劳动节", "date": "2026-05-01"},
-        {"name": "劳动节", "date": "2026-05-02"},
-        {"name": "劳动节", "date": "2026-05-03"},
-        {"name": "劳动节", "date": "2026-05-04"},
-        {"name": "劳动节", "date": "2026-05-05"},
-        {"name": "劳动节调休上班", "date": "2026-05-09"},
-        {"name": "端午节", "date": "2026-06-19"},
-        {"name": "端午节", "date": "2026-06-20"},
-        {"name": "端午节", "date": "2026-06-21"},
-        {"name": "中秋节", "date": "2026-09-25"},
-        {"name": "中秋节", "date": "2026-09-26"},
-        {"name": "中秋节", "date": "2026-09-27"},
-        {"name": "国庆节", "date": "2026-10-01"},
-        {"name": "国庆节", "date": "2026-10-02"},
-        {"name": "国庆节", "date": "2026-10-03"},
-        {"name": "国庆节", "date": "2026-10-04"},
-        {"name": "国庆节", "date": "2026-10-05"},
-        {"name": "国庆节", "date": "2026-10-06"},
-        {"name": "国庆节", "date": "2026-10-07"},
-        {"name": "国庆节", "date": "2026-10-08"},
-        {"name": "国庆节调休上班", "date": "2026-10-10"},
-        {"name": "国庆节调休上班", "date": "2026-10-11"},
-    ],
+HOLIDAY_NAMES_ZH: Final[Dict[str, str]] = {
+    "New Year's Day": "元旦",
+    "Spring Festival": "春节",
+    "Tomb-sweeping Day": "清明节",
+    "Labour Day": "劳动节",
+    "Dragon Boat Festival": "端午节",
+    "National Day": "国庆节",
+    "Mid-autumn Festival": "中秋节",
+    "Anti-Fascist 70th Day": "抗战胜利纪念日",
 }
-
-
-def _default_legal_year() -> int:
-    """根据当前年份自动计算默认导入年份。
-
-    优先级：
-    1. 当前年份（若预置数据包含该年）
-    2. 最近可用年份（<= 当前年的最大值）
-    3. 最早的可用年份（所有预置年份都在未来时）
-    4. 当前年份（无预置数据时兜底）
-    """
-    current = datetime.now().year
-    years = sorted(LEGAL_HOLIDAY_PRESETS.keys())
-    if not years:
-        return current
-    if current in years:
-        return current
-    for y in reversed(years):
-        if y <= current:
-            return y
-    return years[0]
-
-
-# 一键导入的默认年份（根据当前年份自动计算，无需硬编码）
-DEFAULT_LEGAL_YEAR: Final = _default_legal_year()
 
 
 # ============================================================

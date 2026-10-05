@@ -121,7 +121,11 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
 
     def _create_event(self, start_str, end_str, name: str, uid: str,
                       description: str) -> Optional[CalendarEvent]:
-        """创建日历事件（start_str 为空或解析失败时返回 None）"""
+        """创建日历事件（start_str 为空或解析失败时返回 None）。
+
+        v2.19.1：多日事件的 summary 追加日期范围（如 "国庆节 (10-01~10-08)"），
+        让 calendar 实体在 UI 上直接显示假期范围；单日事件保持原名。
+        """
         start = self._parse_date(start_str)
         if start is None:
             _LOGGER.warning("跳过事件 '%s'：开始日期为空或解析失败", name)
@@ -131,10 +135,16 @@ class SmartWorkdayCalendar(CoordinatorEntity, CalendarEntity):
         if end is None:
             end = start
 
+        # 多日事件在 summary 里带日期范围，UI 上直接可见
+        if start == end:
+            summary = name
+        else:
+            summary = f"{name} ({start.strftime('%m-%d')}~{end.strftime('%m-%d')})"
+
         return CalendarEvent(
             start=datetime.combine(start, datetime.min.time(), self._tz),
             end=datetime.combine(end + timedelta(days=1), datetime.min.time(), self._tz),
-            summary=name,
+            summary=summary,
             description=description,
             uid=uid,
         )

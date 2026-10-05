@@ -8,6 +8,6 @@
   "integration_type": "service",
   "iot_class": "local_polling",
   "minimum_ha_version": "2023.9",
-  "requirements": ["pyyaml>=6.0"],
-  "version": "2.19.0"
+  "requirements": ["pyyaml>=6.0", "chinese-calendar>=1.11.0"],
+  "version": "2.20.0"
 }
