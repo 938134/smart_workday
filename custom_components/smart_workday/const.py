@@ -3,6 +3,11 @@
 版本号统一在此维护：所有 Python 模块通过 `from .const import VERSION` 引用。
 manifest.json 需手动同步（HA 无法从 const.py 动态读取）。
 
+v3.1.0：配置 UI 拆分为 2 段（传感器 / 诊断），实体级开关取代全局开关
+- 传感器段 4 个开关：法定假期 / 工作日 / 假期日历 / 自定义假期（各控制对应实体可见性）
+- 诊断段 2 个开关：法定假期诊断 / 自定义假期诊断（控制 text_sensor 信息实体）
+- 新增 text_sensor 平台，暴露 next_holiday 和 active_custom 详情
+
 v3.0.0 破坏性重构：
 - Store 结构从 3 分类（holidays/studentdays/customdays）合并为 2 分类（legal/custom）
   学生假期实质是自定义假期的一个类别，每条 custom 条目带 category 字段
@@ -16,7 +21,7 @@ from typing import Any, Final, Dict, List
 # ============================================================
 # 版本号（唯一权威来源，其它 Python 模块必须从此引用）
 # ============================================================
-VERSION: Final = "3.0.0"
+VERSION: Final = "3.1.0"
 
 # 存储版本号（Store JSON 持久化，v3.0.0 起为 2）
 STORAGE_VERSION: Final = 2
@@ -58,11 +63,26 @@ CALENDAR_UNIQUE_SUFFIX: Final = "_calendar"
 
 
 # ============================================================
-# 顶层启用开关（entry.data 键名，v3.0.0 起仅 2 个）
+# 顶层数据开关（v3.0.0 起）：控制 Store 里是否导入/保留对应数据
+# v3.1.0：与实体可见性解耦，仅控制数据来源，不影响 UI 显示
 # ============================================================
-CONF_ENABLED_LEGAL: Final = "enabled_legal"
-CONF_ENABLED_CUSTOM: Final = "enabled_custom"
+CONF_ENABLED_LEGAL: Final = "enabled_legal"      # 是否导入/保留法定假期数据
+CONF_ENABLED_CUSTOM: Final = "enabled_custom"    # 是否保留自定义假期数据
 CONF_NAME: Final = "name"
+
+# ============================================================
+# 传感器实体可见性开关（v3.1.0 新增）：每个实体独立开关
+# ============================================================
+CONF_ENABLED_LEGAL_SENSOR: Final = "enabled_legal_holiday_sensor"
+CONF_ENABLED_WORKDAY_SENSOR: Final = "enabled_workday_sensor"
+CONF_ENABLED_CALENDAR: Final = "enabled_calendar"
+CONF_ENABLED_CUSTOM_SENSOR: Final = "enabled_custom_holiday_sensor"
+
+# ============================================================
+# 诊断实体开关（v3.1.0 新增）：text_sensor 信息实体
+# ============================================================
+CONF_ENABLED_LEGAL_DIAG: Final = "enabled_legal_diag"
+CONF_ENABLED_CUSTOM_DIAG: Final = "enabled_custom_diag"
 
 # OptionsFlow 表单字段
 CONF_START_DATE: Final = "start_date"
@@ -83,6 +103,13 @@ DEFAULT_CUSTOM_CATEGORIES: Final[List[str]] = ["学生", "工作", "个人", "�
 BINARY_SENSOR_IS_WORKDAY: Final = "工作日"
 BINARY_SENSOR_IS_HOLIDAY: Final = "法定假期"
 BINARY_SENSOR_IS_CUSTOM_HOLIDAY: Final = "自定义假期"
+
+# ============================================================
+# 诊断 Binary Sensor 配置（v3.1.0 新增，on/off 而非文本）
+# ============================================================
+BINARY_SENSOR_LEGAL_DIAG: Final = "法定假期诊断"
+BINARY_SENSOR_CUSTOM_DIAG: Final = "自定义假期诊断"
+BINARY_SENSOR_DIAG_MODEL: Final = "诊断传感器"
 
 # 属性键名（供 binary_sensor.attributes 读取，保留富信息）
 ATTR_IS_WORKDAY: Final = "is_workday"

@@ -1,5 +1,10 @@
 """Smart Workday integration.
 
+v3.1.0：新增 text_sensor 平台，配置 UI 拆分为 传感器 / 诊断 两段
+- 传感器段 4 个开关：法定假期 / 工作日 / 假期日历 / 自定义假期
+- 诊断段 2 个开关：法定假期诊断 / 自定义假期诊断
+- 实体可见性开关取代旧的全局开关，老 enabled_legal/enabled_custom 仅控制数据导入
+
 v3.0.0 破坏性重构：
 - 引入 migrate_v1_to_v2：老 Store 结构（holidays/studentdays/customdays）无损迁移到新结构（legal/custom）
   - holidays → legal（原样）

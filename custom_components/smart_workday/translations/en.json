@@ -8,9 +8,7 @@
                 "title": "Configure Smart Workday",
                 "description": "{tips}",
                 "data": {
-                    "name": "Integration Name",
-                    "enabled_legal": "Enable Legal Holidays",
-                    "enabled_custom": "Enable Custom Holidays"
+                    "name": "Integration Name"
                 }
             }
         }
@@ -30,8 +28,12 @@
                 "title": "Toggles",
                 "description": "{tips}",
                 "data": {
-                    "enabled_legal": "📅 Enable National Holidays",
-                    "enabled_custom": "🎉 Enable Custom Holidays"
+                    "enabled_legal_holiday_sensor": "📅 Legal Holiday (Sensor)",
+                    "enabled_workday_sensor": "💼 Workday (Sensor)",
+                    "enabled_calendar": "📆 Holiday Calendar",
+                    "enabled_custom_holiday_sensor": "🎉 Custom Holiday (Sensor)",
+                    "enabled_legal_diag": "🔍 Legal Holiday Diagnostics",
+                    "enabled_custom_diag": "🔍 Custom Holiday Diagnostics"
                 }
             },
             "add_holiday": {

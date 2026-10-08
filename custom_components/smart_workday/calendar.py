@@ -30,10 +30,13 @@ from .const import (
     DOMAIN_DISPLAY_NAME,
     CALENDAR_ENTITY_NAME,
     CALENDAR_UNIQUE_SUFFIX,
+    CONF_ENABLED_CALENDAR,
     EVENT_SOURCE_LEGAL,
     EVENT_SOURCE_CUSTOM,
     EVENT_SOURCE_MAKEUP,
     MAKEUP_KEYWORD,
+    KEY_LEGAL,
+    KEY_CUSTOM,
 )
 from .coordinator import SmartWorkdayCoordinator
 
@@ -193,6 +196,68 @@ class SmartWorkdayCalendar(RestoreEntity, CoordinatorEntity, CalendarEntity):
             _LOGGER.error("event 属性计算失败: %s", e, exc_info=True)
             return None
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        """v3.1.0：详细状态信息 —— 当前事件 + 未来事件 + 数据源状态。"""
+        from datetime import date
+        now = dt.now()
+        today = now.date()
+        attrs = {
+            "date": today.isoformat(),
+            "weekday": self._get_weekday_name(today),
+        }
+
+        # 当前事件详情
+        events = self._event_list
+        if not events:
+            data = self.coordinator.data.get("data") if self.coordinator.data else None
+            if not data:
+                data = self.coordinator.data_manager._data_cache
+            if not data:
+                return {"date": today.isoformat(), "weekday": attrs["weekday"], "state": "无数据"}
+            events = self._build_events(data)
+            if events:
+                self._event_list = events
+
+        if not events:
+            attrs["state"] = "无假期"
+            return attrs
+
+        # 找进行中事件
+        ongoing = [e for e in events if e.start <= now < e.end]
+        if ongoing:
+            ev = min(ongoing, key=lambda e: e.start)
+            attrs["state"] = "进行中"
+            attrs["current_event"] = ev.summary
+            attrs["current_event_end"] = ev.end.date().isoformat()
+        else:
+            attrs["state"] = "空闲"
+
+        # 未来事件（最近 7 天）
+        upcoming = []
+        for e in events:
+            if e.start > now and (e.start.date() - today).days <= 7:
+                upcoming.append({
+                    "name": e.summary,
+                    "date": e.start.date().isoformat(),
+                    "days_until": (e.start.date() - today).days,
+                })
+        upcoming.sort(key=lambda x: x["days_until"])
+        attrs["upcoming"] = upcoming[:5]  # 最多 5 个
+
+        # 数据源统计
+        raw = self.coordinator.data.get("data") if self.coordinator.data else None
+        if raw:
+            attrs["legal_count"] = len(raw.get(KEY_LEGAL, []))
+            attrs["custom_count"] = len(raw.get(KEY_CUSTOM, []))
+
+        return attrs
+
+    @staticmethod
+    def _get_weekday_name(d: date) -> str:
+        names = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
+        return names[d.weekday()]
+
     async def async_update(self) -> None:
         """CalendarEntity 请求时刷新事件缓存"""
         try:
@@ -238,6 +303,12 @@ async def async_setup_entry(
         model=CALENDAR_ENTITY_NAME,
         sw_version=VERSION,
     )
+
+    # v3.1.0：按开关筛选实体
+    enabled_calendar = bool(entry.data.get(CONF_ENABLED_CALENDAR, True))
+    if not enabled_calendar:
+        _LOGGER.info("%s 实体已禁用，跳过添加", CALENDAR_ENTITY_NAME)
+        return
 
     async_add_entities([SmartWorkdayCalendar(coordinator, device_info)])
     _LOGGER.info("已添加 %s 实体", CALENDAR_ENTITY_NAME)
