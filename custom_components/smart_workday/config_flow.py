@@ -35,8 +35,6 @@ from .const import (
     CONF_ENABLED_WORKDAY_SENSOR,
     CONF_ENABLED_CALENDAR,
     CONF_ENABLED_CUSTOM_SENSOR,
-    CONF_ENABLED_LEGAL_DIAG,
-    CONF_ENABLED_CUSTOM_DIAG,
     CONF_NAME,
     CONF_START_DATE,
     CONF_END_DATE,
@@ -50,14 +48,12 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# v3.1.0：UI 可见的 6 个开关（4 传感器 + 2 诊断）
+# v3.1.0：UI 可见的 4 个开关（2 传感器 + 2 诊断）
 _SWITCH_KEYS_UI = (
-    CONF_ENABLED_LEGAL_SENSOR,
     CONF_ENABLED_WORKDAY_SENSOR,
     CONF_ENABLED_CALENDAR,
+    CONF_ENABLED_LEGAL_SENSOR,
     CONF_ENABLED_CUSTOM_SENSOR,
-    CONF_ENABLED_LEGAL_DIAG,
-    CONF_ENABLED_CUSTOM_DIAG,
 )
 
 
@@ -152,13 +148,11 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         status = (
             "📊 **当前配置**\n"
             "📊 **传感器**\n"
-            f"  • 📅 法定假期：{_on(CONF_ENABLED_LEGAL_SENSOR)}（{len(data.get(KEY_LEGAL, []))} 条数据）\n"
             f"  • 💼 工作日：{_on(CONF_ENABLED_WORKDAY_SENSOR)}\n"
             f"  • 📆 假期日历：{_on(CONF_ENABLED_CALENDAR)}\n"
-            f"  • 🎉 自定义假期：{_on(CONF_ENABLED_CUSTOM_SENSOR)}（{len(data.get(KEY_CUSTOM, []))} 条数据）\n"
             "🔍 **诊断**\n"
-            f"  • 📅 法定假期诊断：{_on(CONF_ENABLED_LEGAL_DIAG)}\n"
-            f"  • 🎉 自定义假期诊断：{_on(CONF_ENABLED_CUSTOM_DIAG)}\n"
+            f"  • 📅 法定假期：{_on(CONF_ENABLED_LEGAL_SENSOR)}（{len(data.get(KEY_LEGAL, []))} 条数据）\n"
+            f"  • 🎉 自定义假期：{_on(CONF_ENABLED_CUSTOM_SENSOR)}（{len(data.get(KEY_CUSTOM, []))} 条数据）\n"
             f"  • 🏷️ 类别：{custom_categories}\n"
             "\n📌 **操作说明**\n"
             "  • 法定假期自动从国务院通知导入，无需手动录入\n"
@@ -199,13 +193,11 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             description_placeholders={
                 "tips": "⚙️ **开关管理**\n"
                         "📊 **传感器**\n"
-                        "  • 法定假期：今天是否法定假期（on/off）\n"
                         "  • 工作日：今天是否工作日（on/off）\n"
                         "  • 假期日历：日历实体（显示所有假期事件 + 详细状态）\n"
-                        "  • 自定义假期：今天是否有自定义假期（on/off）\n"
                         "🔍 **诊断**\n"
-                        "  • 法定假期诊断：法定假期数据是否可用（on/off）\n"
-                        "  • 自定义假期诊断：自定义假期数据是否可用（on/off）",
+                        "  • 法定假期：今天是否法定假期（on/off）\n"
+                        "  • 自定义假期：今天是否有自定义假期（on/off）",
             },
         )
 

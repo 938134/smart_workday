@@ -1,9 +1,8 @@
-"""Binary Sensor platform for Smart Workday - 3 常规 + 2 诊断 布尔传感器.
+"""Binary Sensor platform for Smart Workday - 3 个布尔传感器，分属 2 个设备.
 
-v3.1.0：新增 2 个诊断传感器（数据源健康检查，on/off）
-- 法定假期诊断：legal 数据非空 = on，详情挂 attributes（今天状态/下一个假期/距今天数）
-- 自定义假期诊断：custom 数据非空 = on，详情挂 attributes（今天活跃类别）
-- 常规 3 个：is_workday / is_holiday / is_custom_holiday
+v3.1.0：法定假期 / 自定义假期归入诊断设备，工作日留在传感器设备
+- 传感器设备（默认）：工作日
+- 诊断设备（诊断）：法定假期 + 自定义假期
 
 v3.0.0 破坏性重构：
 - 4 → 3 个 sensor：删除 is_student_holiday（学生假期实质是自定义假期的一个类别）
@@ -32,13 +31,9 @@ from .const import (
     BINARY_SENSOR_IS_WORKDAY,
     BINARY_SENSOR_IS_HOLIDAY,
     BINARY_SENSOR_IS_CUSTOM_HOLIDAY,
-    BINARY_SENSOR_LEGAL_DIAG,
-    BINARY_SENSOR_CUSTOM_DIAG,
     CONF_ENABLED_LEGAL_SENSOR,
     CONF_ENABLED_WORKDAY_SENSOR,
     CONF_ENABLED_CUSTOM_SENSOR,
-    CONF_ENABLED_LEGAL_DIAG,
-    CONF_ENABLED_CUSTOM_DIAG,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
@@ -46,21 +41,24 @@ from .const import (
     ATTR_IS_CUSTOM_HOLIDAY,
     ATTR_ACTIVE_CUSTOM,
     ATTR_DAY_TYPE,
-    KEY_LEGAL,
-    KEY_CUSTOM,
 )
 from .coordinator import SmartWorkdayCoordinator, DayInfo
 
 _LOGGER = logging.getLogger(__name__)
 
+# v3.1.0：传感器区（工作日）+ 诊断区（法定假期/自定义假期）
 # (entity_name, icon, unique_suffix, DayInfo 属性名)
 SENSOR_DEFS: List[Tuple[str, str, str, str]] = [
     (BINARY_SENSOR_IS_WORKDAY, "mdi:briefcase-check", "is_workday", "is_workday"),
+]
+
+# 诊断区传感器定义
+DIAG_SENSOR_DEFS: List[Tuple[str, str, str, str]] = [
     (BINARY_SENSOR_IS_HOLIDAY, "mdi:calendar-check", "is_holiday", "is_holiday"),
     (BINARY_SENSOR_IS_CUSTOM_HOLIDAY, "mdi:star", "is_custom_holiday", "is_custom_holiday"),
 ]
 
-# entity_name → 启用开关键名（v3.1.0：每个传感器独立开关）
+# entity_name → 启用开关键名
 SENSOR_FLAG_MAP: Dict[str, str] = {
     BINARY_SENSOR_IS_WORKDAY: CONF_ENABLED_WORKDAY_SENSOR,
     BINARY_SENSOR_IS_HOLIDAY: CONF_ENABLED_LEGAL_SENSOR,
@@ -130,96 +128,12 @@ class SmartWorkdayBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEnt
         }
 
 
-class SmartWorkdayDiagnosticBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEntity):
-    """诊断布尔传感器：检查数据源是否可用（有数据 = on，无数据 = off）。
-
-    - 法定假期诊断：legal 数据非空 = on
-    - 自定义假期诊断：custom 数据非空 = on
-    详细诊断信息挂在 extra_state_attributes 里。
-    """
-
-    _attr_has_entity_name = True
-
-    def __init__(self, coordinator, device_info, entity_name, icon, unique_suffix, kind):
-        super().__init__(coordinator)
-        self._kind = kind  # "legal" or "custom"
-        self._attr_unique_id = f"{coordinator.entry_id}_{unique_suffix}"
-        self._attr_name = entity_name
-        self._attr_device_info = device_info
-        self._attr_icon = icon
-
-    def _get_raw_data(self) -> Dict[str, Any]:
-        data = self.coordinator.data
-        return data.get("data") if data else {}
-
-    def _get_day_info(self) -> DayInfo | None:
-        data = self.coordinator.data
-        return data.get("day_info") if data else None
-
-    @property
-    def is_on(self) -> bool:
-        """数据源非空 = on"""
-        raw = self._get_raw_data()
-        if self._kind == "legal":
-            return len(raw.get(KEY_LEGAL, [])) > 0
-        else:
-            return len(raw.get(KEY_CUSTOM, [])) > 0
-
-    @property
-    def extra_state_attributes(self) -> Dict[str, Any]:
-        raw = self._get_raw_data()
-        day_info = self._get_day_info()
-        entries = raw.get(KEY_LEGAL if self._kind == "legal" else KEY_CUSTOM, [])
-        if not entries:
-            return {"data_count": 0}
-
-        attrs: Dict[str, Any] = {
-            "data_count": len(entries),
-            "date": day_info.date if day_info else "",
-            "weekday": day_info.weekday_name if day_info else "",
-        }
-
-        if self._kind == "legal":
-            # 法定假期诊断：今天状态 + 下一个假期
-            attrs["today_is_holiday"] = day_info.is_holiday if day_info else False
-            attrs["today_event"] = day_info.primary_event if day_info else ""
-            # 找下一个假期
-            from datetime import date, datetime
-            today = date.today()
-            future = []
-            for item in entries:
-                start = None
-                if "date" in item:
-                    try:
-                        start = datetime.strptime(item["date"], "%Y-%m-%d").date()
-                    except (ValueError, TypeError):
-                        pass
-                elif "start" in item:
-                    try:
-                        start = datetime.strptime(item["start"], "%Y-%m-%d").date()
-                    except (ValueError, TypeError):
-                        pass
-                if start and start > today:
-                    future.append((item.get("name", "未命名"), start.isoformat(), (start - today).days))
-            if future:
-                future.sort(key=lambda x: x[2])
-                attrs["next_holiday_name"] = future[0][0]
-                attrs["next_holiday_date"] = future[0][1]
-                attrs["days_until_next"] = future[0][2]
-        else:
-            # 自定义假期诊断：今天活跃类别
-            attrs["today_active_custom"] = day_info.active_custom if day_info else {}
-            attrs["today_is_custom_holiday"] = day_info.is_custom_holiday if day_info else False
-
-        return attrs
-
-
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置 3 个常规 + 2 个诊断 布尔传感器实体"""
+    """设置传感器区（工作日）+ 诊断区（法定假期/自定义假期）"""
     _LOGGER.debug("设置布尔传感器: %s", entry.entry_id)
 
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
@@ -244,6 +158,7 @@ async def async_setup_entry(
 
     # v3.1.0：按开关筛选实体
     sensors = []
+    # 传感器区
     for entity_name, icon, suffix, day_info_attr in SENSOR_DEFS:
         flag_key = SENSOR_FLAG_MAP.get(entity_name)
         if flag_key is not None:
@@ -252,16 +167,14 @@ async def async_setup_entry(
                 continue
         sensors.append(SmartWorkdayBinarySensor(coordinator, device_info, entity_name, icon, suffix, day_info_attr))
 
-    # 诊断传感器
-    diag_defs = [
-        (BINARY_SENSOR_LEGAL_DIAG, "mdi:heart-pulse", "legal_diag", "legal", CONF_ENABLED_LEGAL_DIAG),
-        (BINARY_SENSOR_CUSTOM_DIAG, "mdi:heart-variant", "custom_diag", "custom", CONF_ENABLED_CUSTOM_DIAG),
-    ]
-    for entity_name, icon, suffix, kind, flag_key in diag_defs:
-        enabled = bool(entry.data.get(flag_key, True))
-        if not enabled:
-            continue
-        sensors.append(SmartWorkdayDiagnosticBinarySensor(coordinator, diag_device_info, entity_name, icon, suffix, kind))
+    # 诊断区（法定假期/自定义假期）
+    for entity_name, icon, suffix, day_info_attr in DIAG_SENSOR_DEFS:
+        flag_key = SENSOR_FLAG_MAP.get(entity_name)
+        if flag_key is not None:
+            enabled = bool(entry.data.get(flag_key, True))
+            if not enabled:
+                continue
+        sensors.append(SmartWorkdayBinarySensor(coordinator, diag_device_info, entity_name, icon, suffix, day_info_attr))
 
     if sensors:
         async_add_entities(sensors)

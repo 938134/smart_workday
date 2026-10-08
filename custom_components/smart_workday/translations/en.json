@@ -28,12 +28,10 @@
                 "title": "Toggles",
                 "description": "{tips}",
                 "data": {
-                    "enabled_legal_holiday_sensor": "📅 Legal Holiday (Sensor)",
-                    "enabled_workday_sensor": "💼 Workday (Sensor)",
+                    "enabled_workday_sensor": "💼 Workday",
                     "enabled_calendar": "📆 Holiday Calendar",
-                    "enabled_custom_holiday_sensor": "🎉 Custom Holiday (Sensor)",
-                    "enabled_legal_diag": "🔍 Legal Holiday Diagnostics",
-                    "enabled_custom_diag": "🔍 Custom Holiday Diagnostics"
+                    "enabled_legal_holiday_sensor": "📅 Legal Holiday",
+                    "enabled_custom_holiday_sensor": "🎉 Custom Holiday"
                 }
             },
             "add_holiday": {

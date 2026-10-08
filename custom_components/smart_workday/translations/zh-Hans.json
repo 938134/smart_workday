@@ -28,12 +28,10 @@
                 "title": "开关管理",
                 "description": "{tips}",
                 "data": {
-                    "enabled_legal_holiday_sensor": "📅 法定假期（传感器）",
-                    "enabled_workday_sensor": "💼 工作日（传感器）",
+                    "enabled_workday_sensor": "💼 工作日",
                     "enabled_calendar": "📆 假期日历",
-                    "enabled_custom_holiday_sensor": "🎉 自定义假期（传感器）",
-                    "enabled_legal_diag": "🔍 法定假期诊断",
-                    "enabled_custom_diag": "🔍 自定义假期诊断"
+                    "enabled_legal_holiday_sensor": "📅 法定假期",
+                    "enabled_custom_holiday_sensor": "🎉 自定义假期"
                 }
             },
             "add_holiday": {
