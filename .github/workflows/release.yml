@@ -24,39 +24,26 @@ jobs:
           INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
           echo "INTEGRATION_DIR=$INTEGRATION_DIR" >> $GITHUB_ENV
 
-      - name: 同步标签
+      - name: 从 manifest.json 读取版本号
+        id: version
         run: |
-          git fetch --tags --force
-          echo "今日已有标签:"
-          git tag -l "v$(date +%Y%m%d)*" | sort -V || true
-
-      - name: 计算版本号
-        id: version_calc
-        run: |
-          export TZ=Asia/Shanghai
-          DATE_PATTERN="$(date +%Y%m%d)"
-          TAG_PREFIX="v${DATE_PATTERN}"
-
-          MAX_NUM=$(git tag -l "${TAG_PREFIX}*" | grep -oE '[0-9]{2}$' | sort -nr | head -1)
-          MAX_NUM=${MAX_NUM:-0}
-          NEXT_NUM=$((10#$MAX_NUM + 1))
-          NEW_VERSION="${TAG_PREFIX}$(printf '%02d' $NEXT_NUM)"
-
-          echo "新版本: $NEW_VERSION"
-          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
-          echo "tag_prefix=$TAG_PREFIX" >> $GITHUB_OUTPUT
+          VERSION=$(python3 -c "import json; print(json.load(open('custom_components/${{ env.PACKAGE_NAME }}/manifest.json'))['version'])")
+          TAG="v${VERSION}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "📌 manifest.json 版本: $VERSION → 标签: $TAG"
 
       - name: 清理已有发布
         if: always()
         continue-on-error: true
         run: |
-            if gh release view "${{ steps.version_calc.outputs.version }}" >/dev/null 2>&1; then
-              echo "发现同名发布，正在删除..."
-              gh release delete "${{ steps.version_calc.outputs.version }}" --cleanup-tag -y
-              echo "已删除同名发布"
-            else
-              echo "没有找到同名发布，跳过删除"
-            fi
+          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
+            echo "发现同名发布，正在删除..."
+            gh release delete "${{ steps.version.outputs.tag }}" --cleanup-tag -y
+            echo "已删除同名发布"
+          else
+            echo "没有找到同名发布，跳过删除"
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -84,33 +71,21 @@ jobs:
           BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
 
+      - name: 读取发布描述模板
+        run: |
+          sed -e "s|{{VERSION}}|${{ steps.version.outputs.tag }}|g" \
+              -e "s|{{BUILD_DATE}}|${{ steps.get_date.outputs.build_date }}|g" \
+              .github/release_body.md > /tmp/release_body.md
+          echo "📄 发布描述已生成"
+
       - name: 创建发布
         uses: ncipollo/release-action@v1
         with:
           artifacts: "${{ env.ZIP_NAME }}"
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: "${{ steps.version_calc.outputs.version }}"
-          name: "Release ${{ steps.version_calc.outputs.version }}"
-          body: |
-            ### 🚀 智能假期管理
-
-            基于工作/学生模式的工作日判定与假期管理。
-
-            **核心功能**
-            - 📅 3 个布尔实体：工作日 / 节假日 / 学生假期
-            - 📅 3 个独立日历：法定节假日 / 学生假期 / 自定义假期
-            - 🏮 调休补班自动识别（含「调休」→ 上班日）
-            - 🎯 国务院放假通知预设导入
-            - 🔄 旧版 YAML 数据自动迁移
-
-            **安装方式**
-            1. 下载 `smart_workday.zip`
-            2. 解压到 `custom_components/` 目录
-            3. 重启 Home Assistant
-
-            **版本**
-            - 版本: ${{ steps.version_calc.outputs.version }}
-            - 构建日期: ${{ steps.get_date.outputs.build_date }}
+          tag: "${{ steps.version.outputs.tag }}"
+          name: "Release ${{ steps.version.outputs.tag }}"
+          body-file: /tmp/release_body.md
           makeLatest: true
           skipIfReleaseExists: true
 
@@ -126,5 +101,5 @@ jobs:
         run: |
           echo "🎉 发布成功!"
           echo "📦 包名称: ${{ env.PACKAGE_NAME }}"
-          echo "🏷️ 版本号: ${{ steps.version_calc.outputs.version }}"
+          echo "🏷️ 版本号: ${{ steps.version.outputs.tag }}"
           echo "📁 文件: ${{ env.ZIP_NAME }}"
