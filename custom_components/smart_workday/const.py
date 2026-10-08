@@ -94,6 +94,9 @@ DEFAULT_CUSTOM_CATEGORIES: Final[List[str]] = ["学生", "工作", "个人", "�
 # ============================================================
 # Binary Sensor 实体配置（v3.0.0 起 3 个）
 # ============================================================
+BINARY_SENSOR_IS_WORKDAY: Final = "工作日"
+BINARY_SENSOR_IS_HOLIDAY: Final = "法定假期"
+BINARY_SENSOR_IS_CUSTOM_HOLIDAY: Final = "自定义假期"
 
 # 属性键名（供 binary_sensor.attributes 读取，保留富信息）
 ATTR_IS_WORKDAY: Final = "is_workday"
