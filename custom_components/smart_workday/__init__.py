@@ -1,4 +1,12 @@
-"""Smart Workday integration."""
+"""Smart Workday integration.
+
+v3.0.0 破坏性重构：
+- 引入 migrate_v1_to_v2：老 Store 结构（holidays/studentdays/customdays）无损迁移到新结构（legal/custom）
+  - holidays → legal（原样）
+  - studentdays → custom，每条加 category="学生"
+  - customdays  → custom，每条加 category="自定义"
+- 顶层开关 3 → 2：entry.data 中 enabled_student 被忽略（迁移时保留但不再使用）
+"""
 
 import logging
 import uuid
@@ -15,7 +23,12 @@ from .const import (
     DOMAIN_DISPLAY_NAME,
     STORAGE_VERSION,
     CONF_ENABLED_LEGAL,
-    KEY_HOLIDAYS,
+    KEY_LEGAL,
+    KEY_CUSTOM,
+    LEGACY_KEY_HOLIDAYS,
+    LEGACY_KEY_STUDENTDAYS,
+    LEGACY_KEY_CUSTOMDAYS,
+    LEGACY_KEYS_DETECTION,
     HOLIDAY_NAMES_ZH,
     empty_calendar_data,
 )
@@ -28,6 +41,9 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.BINARY_SENSOR, Platform.CALENDAR]
 
 
+# ============================================================
+# 从 chinese_calendar 库生成法定假期条目
+# ============================================================
 def _build_legal_holidays_from_calendar(year: int) -> List[Dict[str, str]]:
     """从 chinese_calendar 库生成某年法定假期条目列表。
 
@@ -90,20 +106,99 @@ def _entry_dedup_key(item: Dict) -> Tuple:
     return ("range", item.get("start", ""), item.get("end", ""))
 
 
+# ============================================================
+# v1 → v2 Store 结构迁移
+# ============================================================
+def migrate_v1_to_v2(data: Dict) -> Dict:
+    """把 v1 Store 结构（holidays/studentdays/customdays）无损迁移为 v2（legal/custom）。
+
+    迁移规则：
+    - holidays → legal（原样保留，含 uid、name、date/start/end）
+    - studentdays → custom，每条追加 category="学生"
+    - customdays → custom，每条追加 category="自定义"
+    - 已迁移到 v2 结构的 data 原样返回（幂等）
+
+    幂等性：只要 data 已含 KEY_LEGAL 或 KEY_CUSTOM，就视为已迁移，直接返回原对象。
+    """
+    if not data:
+        return empty_calendar_data()
+
+    # 已迁移
+    if KEY_LEGAL in data or KEY_CUSTOM in data:
+        return data
+
+    # 无任何 legacy 字段 → 空数据
+    if not any(k in data for k in LEGACY_KEYS_DETECTION):
+        return empty_calendar_data()
+
+    migrated: Dict[str, List[Dict]] = {"legal": [], "custom": []}
+
+    # holidays → legal
+    for item in data.get(LEGACY_KEY_HOLIDAYS, []) or []:
+        if isinstance(item, dict):
+            migrated["legal"].append(dict(item))
+
+    # studentdays → custom（category="学生"）
+    for item in data.get(LEGACY_KEY_STUDENTDAYS, []) or []:
+        if not isinstance(item, dict):
+            continue
+        new_item = dict(item)
+        new_item.setdefault("category", "学生")
+        migrated["custom"].append(new_item)
+
+    # customdays → custom（category="自定义"）
+    for item in data.get(LEGACY_KEY_CUSTOMDAYS, []) or []:
+        if not isinstance(item, dict):
+            continue
+        new_item = dict(item)
+        new_item.setdefault("category", "自定义")
+        migrated["custom"].append(new_item)
+
+    # 按日期排序（保持与 _async_save_sync 一致的排序）
+    for key in ("legal", "custom"):
+        migrated[key].sort(key=lambda x: x.get("date") or x.get("start", ""))
+
+    return migrated
+
+
+async def _async_migrate_if_needed(hass: HomeAssistant, store: Store) -> None:
+    """检测 Store 是否为 v1 结构，是则迁移并保存。"""
+    try:
+        data = await store.async_load()
+        if not data:
+            return  # 空 Store，无需迁移
+
+        if KEY_LEGAL in data or KEY_CUSTOM in data:
+            return  # 已是 v2，跳过
+
+        if not any(k in data for k in LEGACY_KEYS_DETECTION):
+            return  # 无 legacy 字段，跳过
+
+        new_data = migrate_v1_to_v2(data)
+        await store.async_save(new_data)
+        _LOGGER.info(
+            "Store 已从 v1 迁移到 v2（legal=%d, custom=%d）",
+            len(new_data.get(KEY_LEGAL, [])),
+            len(new_data.get(KEY_CUSTOM, [])),
+        )
+    except Exception as e:
+        _LOGGER.error("Store 迁移失败: %s", e)
+
+
+# ============================================================
+# 法定假期自动导入
+# ============================================================
 async def _auto_import_legal_if_empty(hass: HomeAssistant, store: Store, entry: ConfigEntry):
     """启用法定假期开关时，按日期合并导入 chinese_calendar 提供的国务院法定假期。
 
-    v2.20.0：数据源从硬编码 LEGAL_HOLIDAY_PRESETS 切换为 chinese-calendar 库。
-    合并模式（保留 v2.19.1 修复）：
-    - 逐条按 (单日|多日, 起, 止) 比对，已有条目保留用户数据，缺失条目补齐
-    - 每次 reload 都会检查，用户清空某日能自动恢复；用户手工改动过的条目不会被覆盖
-    - 目标年份取当前系统年（chinese-calendar 通常覆盖至当年）
+    合并模式：逐条按 (单日|多日, 起, 止) 比对，已有条目保留用户数据，缺失条目补齐。
+    用户手工改动过的条目不会被覆盖；用户清空某日能自动恢复。
     """
     try:
         data = await store.async_load()
         if not data:
             data = empty_calendar_data()
-        holidays = data.setdefault(KEY_HOLIDAYS, [])
+        legal = data.setdefault(KEY_LEGAL, [])
 
         import_year = date.today().year
         presets = _build_legal_holidays_from_calendar(import_year)
@@ -113,11 +208,10 @@ async def _auto_import_legal_if_empty(hass: HomeAssistant, store: Store, entry: 
         # 已有条目去重键集合
         existing_keys = {
             _entry_dedup_key(item)
-            for item in holidays
+            for item in legal
             if isinstance(item, dict)
         }
 
-        # 补齐缺失条目（保留用户手工维护的条目）
         added = 0
         for item in presets:
             key = _entry_dedup_key(item)
@@ -125,7 +219,7 @@ async def _auto_import_legal_if_empty(hass: HomeAssistant, store: Store, entry: 
                 continue
             entry_out = dict(item)
             entry_out["uid"] = str(uuid.uuid4())[:8]
-            holidays.append(entry_out)
+            legal.append(entry_out)
             existing_keys.add(key)
             added += 1
 
@@ -133,13 +227,16 @@ async def _auto_import_legal_if_empty(hass: HomeAssistant, store: Store, entry: 
             await store.async_save(data)
             _LOGGER.info(
                 "已合并导入 %d 条 %d 年国务院法定假期（Store 已有 %d 条，共 %d 条预置）",
-                added, import_year, len(holidays) - added, len(presets),
+                added, import_year, len(legal) - added, len(presets),
             )
 
     except Exception as e:
         _LOGGER.error("自动导入法定假期失败: %s", e)
 
 
+# ============================================================
+# setup / unload
+# ============================================================
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """设置配置条目"""
     _LOGGER.debug("设置 %s: %s", DOMAIN_DISPLAY_NAME, entry.entry_id)
@@ -147,8 +244,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # 创建 Store（JSON 持久化，存放在 .storage/ 目录）
     store = Store(hass, STORAGE_VERSION, f"{DOMAIN}.{entry.entry_id}")
 
-    # 自动导入法定假期：启用 legal 且当前无节假日数据时，自动从国务院通知预置数据导入
-    if entry.data[CONF_ENABLED_LEGAL]:
+    # 老 Store（v1）→ v2 迁移（幂等）
+    await _async_migrate_if_needed(hass, store)
+
+    # 自动导入法定假期：启用 legal 且当前无节假日数据时，自动从 chinese-calendar 导入
+    if entry.data.get(CONF_ENABLED_LEGAL, True):
         await _auto_import_legal_if_empty(hass, store, entry)
 
     # 初始化数据管理器

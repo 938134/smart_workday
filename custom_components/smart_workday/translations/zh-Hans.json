@@ -10,8 +10,7 @@
                 "data": {
                     "name": "集成名称",
                     "enabled_legal": "📅 启用法定假期",
-                    "enabled_student": "🎓 启用学生假期",
-                    "enabled_custom": "⭐ 启用自定义假期"
+                    "enabled_custom": "🎉 启用自定义假期"
                 }
             }
         }
@@ -32,23 +31,14 @@
                 "description": "{tips}",
                 "data": {
                     "enabled_legal": "📅 启用法定假期",
-                    "enabled_student": "🎓 启用学生假期",
-                    "enabled_custom": "⭐ 启用自定义假期"
+                    "enabled_custom": "🎉 启用自定义假期"
                 }
             },
-            "add_student": {
-                "title": "添加学生假期",
+            "add_holiday": {
+                "title": "添加假期",
                 "description": "{tips}",
                 "data": {
-                    "custom_name": "假期名称",
-                    "start_date": "开始日期",
-                    "end_date": "结束日期（可选，留空为单日）"
-                }
-            },
-            "add_custom": {
-                "title": "添加自定义假期",
-                "description": "{tips}",
-                "data": {
+                    "category": "类别",
                     "custom_name": "假期名称",
                     "start_date": "开始日期",
                     "end_date": "结束日期（可选，留空为单日）"

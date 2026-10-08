@@ -1,30 +1,9 @@
 """Calendar platform for Smart Workday - 单日历合并显示所有分类事件。
 
-- 显示所有分类事件（法定/学生/自定义），description 标注来源
-- 仅支持 DELETE_EVENT（录入走 OptionsFlow 表单）
-- 数据从 coordinator.data["data"] 缓存读取，兜底 _data_cache
-
-v2.18.5 关键修复：
-- 显式覆盖 `available` property 返回 True，
-  防止 coordinator 刷新失败时日历整块变"不可用"
-  （v2.16.0 误删了这个覆盖，是"日历不可用"的根本原因）
-- `_attr_state` / `_attr_available` 同步写入，
-  HA 2026.5+ 历史系统直接读取 _attr_state，None 会记为 unavailable
-
-v2.18.6 尝试失败：
-- 覆盖 state property 返回 "国庆节 2026-10-04" → HA 内部对自定义字符串格式
-  处理异常，配置后立刻在 Logbook 记录"不可用"
-
-v2.18.7 修复（回退 state 覆盖）：
-- 删除 state property 覆盖（HA CalendarEntity.state 有 @final，覆盖有副作用）
-- 依赖 __init__ 里 _attr_state="空闲" + async_update 里同步 _attr_state
-  让 HA 走默认 state 处理，Logbook 记录 "空闲"/"国庆节" 字符串
-
-v2.20.1：删除 available / write_ha_state 覆盖。
-- coordinator.load_calendar_data 已用 setdefault 兜底补齐 Store 缺失字段，
-  _async_update_data 不会再因 Store 结构问题抛 UpdateFailed。
-- 实体可用性回归 HA 标准行为（跟随 coordinator.last_update_success）。
-- 用户/自动化可通过 HA 工具（event/calendar 服务）正常设置实体状态。
+v3.0.0 破坏性重构：
+- description 前缀从 3 分类（法定/学生/自定义）简化为 2 分类（法定/自定义）
+- 自定义条目在 description 里追加类别：🎉 自定义假期 · 学生
+- 事件构建遍历 dm.iter_enabled_items()，只区分 kind="legal" / kind="custom"
 """
 
 import logging
@@ -52,7 +31,6 @@ from .const import (
     CALENDAR_ENTITY_NAME,
     CALENDAR_UNIQUE_SUFFIX,
     EVENT_SOURCE_LEGAL,
-    EVENT_SOURCE_STUDENT,
     EVENT_SOURCE_CUSTOM,
     EVENT_SOURCE_MAKEUP,
     MAKEUP_KEYWORD,
@@ -130,14 +108,13 @@ class SmartWorkdayCalendar(RestoreEntity, CoordinatorEntity, CalendarEntity):
         dm = self.coordinator.data_manager
         events: List[CalendarEvent] = []
 
-        for category, item in dm.iter_enabled_items(data):
+        for kind, item in dm.iter_enabled_items(data):
             name = item["name"]
-            if category == "holiday":
+            if kind == "legal":
                 desc = EVENT_SOURCE_MAKEUP if MAKEUP_KEYWORD in name else EVENT_SOURCE_LEGAL
-            elif category == "student":
-                desc = EVENT_SOURCE_STUDENT
             else:  # custom
-                desc = EVENT_SOURCE_CUSTOM
+                category = item.get("category") or "自定义"
+                desc = f"{EVENT_SOURCE_CUSTOM} · {category}"
 
             start = item.get("date") or item.get("start")
             end = item.get("date") or item.get("end")
@@ -217,7 +194,7 @@ class SmartWorkdayCalendar(RestoreEntity, CoordinatorEntity, CalendarEntity):
             return None
 
     async def async_update(self) -> None:
-        """CalendarEntity 请求时刷新事件缓存 + 同步 _attr_state 让历史系统捕获"""
+        """CalendarEntity 请求时刷新事件缓存"""
         try:
             data = self.coordinator.data.get("data") if self.coordinator.data else None
             if not data:
@@ -225,12 +202,6 @@ class SmartWorkdayCalendar(RestoreEntity, CoordinatorEntity, CalendarEntity):
             if not data:
                 return
             self._event_list = self._build_events(data)
-
-            # HA 2026.5+ 历史系统直接读 _attr_state，None 会记为 unavailable
-            current = self.event
-            new_state = current.summary if current else "空闲"
-            if getattr(self, "_attr_state", None) != new_state:
-                self._attr_state = new_state
         except Exception as e:
             _LOGGER.error("async_update 失败: %s", e, exc_info=True)
 

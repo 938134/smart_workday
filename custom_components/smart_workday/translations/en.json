@@ -10,7 +10,6 @@
                 "data": {
                     "name": "Integration Name",
                     "enabled_legal": "Enable Legal Holidays",
-                    "enabled_student": "Enable Student Holidays",
                     "enabled_custom": "Enable Custom Holidays"
                 }
             }
@@ -32,23 +31,14 @@
                 "description": "{tips}",
                 "data": {
                     "enabled_legal": "📅 Enable National Holidays",
-                    "enabled_student": "🎓 Enable Student Holidays",
-                    "enabled_custom": "⭐ Enable Custom Holidays"
+                    "enabled_custom": "🎉 Enable Custom Holidays"
                 }
             },
-            "add_student": {
-                "title": "Add Student Holiday",
+            "add_holiday": {
+                "title": "Add Holiday",
                 "description": "{tips}",
                 "data": {
-                    "custom_name": "Holiday Name",
-                    "start_date": "Start Date",
-                    "end_date": "End Date (optional, single day if empty)"
-                }
-            },
-            "add_custom": {
-                "title": "Add Custom Holiday",
-                "description": "{tips}",
-                "data": {
+                    "category": "Category",
                     "custom_name": "Holiday Name",
                     "start_date": "Start Date",
                     "end_date": "End Date (optional, single day if empty)"

@@ -1,16 +1,10 @@
-"""Binary Sensor platform for Smart Workday - 4 个布尔传感器.
+"""Binary Sensor platform for Smart Workday - 3 个布尔传感器.
 
-v2.15.0 起，用 4 个 binary_sensor 替代旧的单个 sensor：
-- is_workday:        工作日（True/False，on/off）
-- is_holiday:        法定假期（True/False，on/off）
-- is_student_holiday: 学生假期（True/False，on/off）
-- is_custom_holiday:  自定义假期（True/False，on/off）
-
-每个 binary_sensor 的 extra_state_attributes 保留富信息
-（date, weekday, day_type, events, upcoming, 所有 is_* 标志），
-方便在 Dashboard 卡片上展示详细信息。
-
-v2.18.0：改用 coordinator.data["day_info"] 对象直接访问，SENSOR_DEFS 数据驱动。
+v3.0.0 破坏性重构：
+- 4 → 3 个 sensor：删除 is_student_holiday（学生假期实质是自定义假期的一个类别）
+- 保留：is_workday / is_holiday / is_custom_holiday
+- 学生/工作/个人/家庭 等具体类别通过 attributes.active_custom 精确暴露
+  例如 attributes.active_custom = {"学生": ["寒假"], "工作": ["出差"]}
 
 v2.19.0：清理冗余 —— 删除从未读取的 sensor_key 列、_attr_should_poll
     （CoordinatorEntity 默认 False）、_attr_sw_version（DeviceInfo 已带，实体级被忽略）。
@@ -18,8 +12,6 @@ v2.19.0：清理冗余 —— 删除从未读取的 sensor_key 列、_attr_shoul
 v2.20.1：删除 available / write_ha_state 覆盖。coordinator.load_calendar_data
     已用 setdefault 兜底补齐 Store 缺失字段，_async_update_data 不会再因
     Store 结构问题抛 UpdateFailed，实体层不再需要强制 available=True。
-    实体可用性回归 HA 标准行为（跟随 coordinator.last_update_success），
-    用户/自动化也可通过 HA 工具正常设置状态。
 """
 
 import logging
@@ -40,14 +32,13 @@ from .const import (
     BINARY_SENSOR_MODEL,
     BINARY_SENSOR_IS_WORKDAY,
     BINARY_SENSOR_IS_HOLIDAY,
-    BINARY_SENSOR_IS_STUDENT_HOLIDAY,
     BINARY_SENSOR_IS_CUSTOM_HOLIDAY,
     ATTR_IS_WORKDAY,
     ATTR_IS_HOLIDAY,
     ATTR_IS_WEEKEND,
     ATTR_IS_SPECIAL_WORKDAY,
-    ATTR_IS_STUDENT_HOLIDAY,
     ATTR_IS_CUSTOM_HOLIDAY,
+    ATTR_ACTIVE_CUSTOM,
     ATTR_DAY_TYPE,
 )
 from .coordinator import SmartWorkdayCoordinator, DayInfo
@@ -58,7 +49,6 @@ _LOGGER = logging.getLogger(__name__)
 SENSOR_DEFS: List[Tuple[str, str, str, str]] = [
     (BINARY_SENSOR_IS_WORKDAY, "mdi:briefcase-check", "is_workday", "is_workday"),
     (BINARY_SENSOR_IS_HOLIDAY, "mdi:calendar-check", "is_holiday", "is_holiday"),
-    (BINARY_SENSOR_IS_STUDENT_HOLIDAY, "mdi:school", "is_student_holiday", "is_student_holiday"),
     (BINARY_SENSOR_IS_CUSTOM_HOLIDAY, "mdi:star", "is_custom_holiday", "is_custom_holiday"),
 ]
 
@@ -100,7 +90,10 @@ class SmartWorkdayBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEnt
 
     @property
     def extra_state_attributes(self) -> Dict[str, Any]:
-        """所有详细信息挂在 attributes 里（富信息）"""
+        """所有详细信息挂在 attributes 里（富信息）。
+
+        v3.0.0：新增 active_custom 属性，暴露当日活跃的自定义类别明细。
+        """
         day_info = self._get_day_info()
         if not day_info:
             return {}
@@ -114,8 +107,8 @@ class SmartWorkdayBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEnt
             ATTR_IS_HOLIDAY: day_info.is_holiday,
             ATTR_IS_WEEKEND: day_info.is_weekend,
             ATTR_IS_SPECIAL_WORKDAY: day_info.is_special_workday,
-            ATTR_IS_STUDENT_HOLIDAY: day_info.is_student_holiday,
             ATTR_IS_CUSTOM_HOLIDAY: day_info.is_custom_holiday,
+            ATTR_ACTIVE_CUSTOM: day_info.active_custom,
             "holiday_name": day_info.primary_event,
             "events": day_info.event_names,
             "upcoming": data.get("upcoming", []) if data else [],
@@ -127,7 +120,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """设置 4 个布尔传感器实体"""
+    """设置 3 个布尔传感器实体"""
     _LOGGER.debug("设置布尔传感器: %s", entry.entry_id)
 
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]

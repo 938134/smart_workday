@@ -1,15 +1,14 @@
 """Config flow for Smart Workday.
 
-方案 X（v2.13.0）+ 学生/自定义统一（v2.14.0）：
-- ConfigFlow：1 步 4 字段（集成名称 + 3 个顶层启用开关）
-- OptionsFlow 总控台（5 步）：
-    init            - 状态摘要 + 下拉路由
-    toggle_switch   - 3 开关合一
-    add_student     - 学生假期（名称 + 开始日期 + 结束日期可选）
-    add_custom      - 自定义假期（名称 + 开始日期 + 结束日期可选）
-    finish          - reload
-
-学生假期和自定义假期 UI 结构完全一致，仅数据分类不同（studentdays vs customdays）。
+v3.0.0 破坏性重构：
+- 顶层开关 3 → 2：删除 enabled_student
+- OptionsFlow 5 → 3 步：
+    init          - 状态摘要 + 下拉路由
+    toggle_switch - 2 开关合一
+    add_holiday   - 添加假期（合并学生/自定义，表单顶部选类别）
+    finish        - reload
+- 类别：下拉快捷选项 + 可自定义输入（SelectSelector + custom_value=True）
+  默认推荐：学生 / 工作 / 个人 / 家庭，用户可输入任意新值
 """
 
 from __future__ import annotations
@@ -31,27 +30,26 @@ from .const import (
     DOMAIN,
     DEFAULT_NAME,
     CONF_ENABLED_LEGAL,
-    CONF_ENABLED_STUDENT,
     CONF_ENABLED_CUSTOM,
     CONF_NAME,
     CONF_START_DATE,
     CONF_END_DATE,
     CONF_CUSTOM_NAME,
+    CONF_CATEGORY,
+    DEFAULT_CUSTOM_CATEGORIES,
+    KEY_LEGAL,
+    KEY_CUSTOM,
     empty_calendar_data,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-# 3 个顶层启用开关的字段名（用于在 schema 构造时循环，避免散落在多处）
-_SWITCH_KEYS = (CONF_ENABLED_LEGAL, CONF_ENABLED_STUDENT, CONF_ENABLED_CUSTOM)
+# 顶层开关字段名（v3.0.0 起仅 2 个）
+_SWITCH_KEYS = (CONF_ENABLED_LEGAL, CONF_ENABLED_CUSTOM)
 
 
 def _switch_schema(defaults: Optional[Dict[str, bool]] = None) -> Dict:
-    """构造 3 个顶层开关的 vol.Schema 字段映射。
-
-    供 ConfigFlow（首次添加，全部默认 True）与 OptionsFlow.toggle_switch
-    （按当前 entry.data 回填）共用，避免同一份 schema 定义重复两次。
-    """
+    """构造 2 个顶层开关的 vol.Schema 字段映射。"""
     defaults = defaults or {}
     return {
         vol.Required(key, default=defaults.get(key, True)): selector.BooleanSelector()
@@ -60,21 +58,18 @@ def _switch_schema(defaults: Optional[Dict[str, bool]] = None) -> Dict:
 
 
 def _parse_switch_input(user_input: Dict[str, Any]) -> Dict[str, bool]:
-    """从 user_input 提取 3 个开关的值（ConfigFlow / OptionsFlow 通用）。"""
+    """从 user_input 提取 2 个开关的值。"""
     return {key: bool(user_input[key]) for key in _SWITCH_KEYS}
 
 
 # ============================================================
-# ConfigFlow - 首次添加集成（名称 + 3 个顶层开关）
+# ConfigFlow - 首次添加集成（名称 + 2 个顶层开关）
 # ============================================================
 
 class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
-    """首次添加：集成名称 + 3 个顶层启用开关，一步完成。
+    """首次添加：集成名称 + 2 个顶层启用开关，一步完成。"""
 
-    提交后 HA 自动跳到 OptionsFlow，用户可继续录入学生/自定义假期。
-    """
-
-    VERSION = 1
+    VERSION = 2  # v3.0.0：ConfigFlow VERSION 也升位，让老 entry 走 schema migration
 
     @staticmethod
     @callback
@@ -86,7 +81,7 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """唯一一步：集成名称 + 3 个顶层启用开关"""
+        """唯一一步：集成名称 + 2 个顶层启用开关"""
         if user_input is not None:
             name = (user_input.get(CONF_NAME) or DEFAULT_NAME).strip() or DEFAULT_NAME
             data = {CONF_NAME: name}
@@ -102,71 +97,57 @@ class SmartWorkdayConfigFlow(ConfigFlow, domain=DOMAIN):
             description_placeholders={
                 "tips": (
                     "⚙️ 输入集成名称，并选择要启用的假期类型（全部默认启用）。\n"
-                    "💡 保存后会跳到选项配置页面，可录入学生假期和自定义假期。"
+                    "💡 保存后会跳到选项配置页面，可录入自定义假期（带类别）。"
                 ),
             },
         )
 
 
 # ============================================================
-# OptionsFlow - 总控台（总入口 + 按需跳转）
+# OptionsFlow - 总控台
 # ============================================================
 
 class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
-    """方案 X（v2.13.0）+ 学生/自定义统一（v2.14.0）：
-
-    步骤：
-    1. init            - 总控台（状态摘要 + 下拉路由）
-    2. toggle_switch   - 3 开关合一
-    3. add_student     - 学生假期：名称 + 开始日期 + 结束日期（可选，与 add_custom 统一）
-    4. add_custom      - 自定义假期：名称 + 开始日期 + 结束日期（可选）
-    5. finish          - 保存并重载
+    """v3.0.0：3 步 —— init / toggle_switch / add_holiday / finish
 
     ⚠️ 不覆盖 __init__：HA 会自动注入 self.config_entry。
     """
 
     @override
     async def async_step_init(self, user_input: Optional[Dict[str, Any]] = None) -> ConfigFlowResult:
-        """总控台：状态摘要 + 「下一步操作」下拉框。
-
-        放弃 async_show_menu（不同 HA 版本 menu 标签翻译路径不一致，导致按钮空文字）。
-        改用 async_show_form + SelectSelector：选项标签直接来自 options 数组，翻译 100% 稳定。
-        """
-        # 用户已选择动作 → 路由
+        """总控台：状态摘要 + 「下一步操作」下拉框。"""
         if user_input is not None:
             action = user_input.get("action", "")
             if action == "toggle_switch":
                 return await self.async_step_toggle_switch()
-            if action == "add_student":
-                return await self.async_step_add_student()
-            if action == "add_custom":
-                return await self.async_step_add_custom()
+            if action == "add_holiday":
+                return await self.async_step_add_holiday()
             if action == "finish":
                 return await self.async_step_finish()
             return await self.async_step_init()
 
         flags = self._get_flags()
         data = await self._get_calendar_data()
+        custom_categories = self._get_categories_summary(data)
 
         status = (
             "📊 **当前配置**\n"
-            f"  • 📅 法定假期：{'✅ 启用' if flags[CONF_ENABLED_LEGAL] else '❌ 禁用'}（{len(data.get('holidays', []))} 条）\n"
-            f"  • 🎓 学生假期：{'✅ 启用' if flags[CONF_ENABLED_STUDENT] else '❌ 禁用'}（{len(data.get('studentdays', []))} 条）\n"
-            f"  • ⭐ 自定义假期：{'✅ 启用' if flags[CONF_ENABLED_CUSTOM] else '❌ 禁用'}（{len(data.get('customdays', []))} 条）\n"
+            f"  • 📅 法定假期：{'✅ 启用' if flags[CONF_ENABLED_LEGAL] else '❌ 禁用'}（{len(data.get(KEY_LEGAL, []))} 条）\n"
+            f"  • 🎉 自定义假期：{'✅ 启用' if flags[CONF_ENABLED_CUSTOM] else '❌ 禁用'}（{len(data.get(KEY_CUSTOM, []))} 条）\n"
+            f"  • 🏷️ 类别：{custom_categories}\n"
             "\n📌 **操作说明**\n"
             "  • 法定假期自动从国务院通知导入，无需手动录入\n"
-            "  • 删除事件：在日历实体上操作\n"
-            "  • 请在下方「下一步操作」下拉框中选择要执行的动作"
+            "  • 添加假期：下拉选类别（学生/工作/个人/家庭，或输入新类别）\n"
+            "  • 删除事件：在日历实体上操作"
         )
 
         return self.async_show_form(
             step_id="init",
             data_schema=vol.Schema({
-                vol.Required("action", default="toggle_switch"): selector.SelectSelector({
+                vol.Required("action", default="add_holiday"): selector.SelectSelector({
                     "options": [
-                        {"value": "toggle_switch", "label": "⚙️ 开关管理（启停三类假期）"},
-                        {"value": "add_student", "label": "🎓 添加学生假期"},
-                        {"value": "add_custom", "label": "⭐ 添加自定义假期"},
+                        {"value": "add_holiday", "label": "🎉 添加假期"},
+                        {"value": "toggle_switch", "label": "⚙️ 开关管理"},
                         {"value": "finish", "label": "✅ 完成并保存"},
                     ],
                     "mode": "dropdown",
@@ -179,7 +160,7 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
     async def async_step_toggle_switch(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """开关管理：一次改 3 个开关"""
+        """开关管理：一次改 2 个开关。"""
         if user_input is not None:
             new_data = dict(self.config_entry.data)
             new_data.update(_parse_switch_input(user_input))
@@ -193,90 +174,72 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             description_placeholders={
                 "tips": "⚙️ **开关管理**\n"
                         "📅 法定假期：启用后自动从国务院通知导入当年数据\n"
-                        "🎓 学生假期：启用后可在日历上添加（选类型 + 日期）\n"
-                        "⭐ 自定义假期：启用后可添加任意名称的单日假期",
+                        "🎉 自定义假期：启用后可添加带类别的自定义假期",
             },
         )
 
     @override
-    async def async_step_add_student(
+    async def async_step_add_holiday(
         self, user_input: Optional[Dict[str, Any]] = None
     ) -> ConfigFlowResult:
-        """学生假期：名称 + 开始日期 + 结束日期（可选）"""
-        return await self._handle_add_holiday(
-            step_id="add_student",
-            category="studentdays",
-            tips="🎓 **添加学生假期**\n填写名称和日期范围。留空结束日期表示单日事件。",
-            log_label="学生假期",
-            user_input=user_input,
-        )
+        """添加假期（合并学生/自定义）：类别 + 名称 + 开始 + 结束。
 
-    @override
-    async def async_step_add_custom(
-        self, user_input: Optional[Dict[str, Any]] = None
-    ) -> ConfigFlowResult:
-        """自定义假期：名称 + 开始日期 + 结束日期（可选）"""
-        return await self._handle_add_holiday(
-            step_id="add_custom",
-            category="customdays",
-            tips="⭐ **添加自定义假期**\n填写名称和日期范围。留空结束日期表示单日事件。",
-            log_label="自定义假期",
-            user_input=user_input,
-        )
-
-    async def _handle_add_holiday(
-        self,
-        step_id: str,
-        category: str,
-        tips: str,
-        log_label: str,
-        user_input: Optional[Dict[str, Any]] = None,
-    ) -> ConfigFlowResult:
-        """学生/自定义假期通用处理器（UI 结构完全一致，仅数据分类不同）。
-
-        - 只填开始日期 → 单日事件（end = start）
-        - 填开始 + 结束日期 → 范围事件
-        - 名称自由输入
+        类别字段：SelectSelector with custom_value=True，
+        提供学生/工作/个人/家庭 4 个快捷选项，同时允许用户输入任意新类别。
         """
         if user_input is not None:
+            category = (user_input.get(CONF_CATEGORY) or "自定义").strip() or "自定义"
             name = (user_input.get(CONF_CUSTOM_NAME) or "").strip()
             start = user_input.get(CONF_START_DATE)
             end = user_input.get(CONF_END_DATE)
             if not name:
                 return self.async_show_form(
-                    step_id=step_id,
+                    step_id="add_holiday",
                     errors={"base": "请填写假期名称"},
                 )
             if not start:
                 return self.async_show_form(
-                    step_id=step_id,
+                    step_id="add_holiday",
                     errors={"base": "请选择开始日期"},
                 )
-            # 结束日期为空 → 视为单日（end = start）
             end_str = end if end else start
             dm = self._get_data_manager()
-            ok = await dm.add_entry(category, name, start, end_str)
+            ok = await dm.add_entry(name=name, start=start, end=end_str, category=category)
             if not ok:
                 return self.async_show_form(
-                    step_id=step_id,
+                    step_id="add_holiday",
                     errors={"base": "保存失败，请检查日志"},
                 )
-            _LOGGER.info("已添加%s: %s (%s ~ %s)", log_label, name, start, end_str)
+            _LOGGER.info("已添加自定义假期: [%s] %s (%s ~ %s)", category, name, start, end_str)
             return await self.async_step_init()
 
+        # 类别下拉 + 可自定义输入
+        category_selector = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=DEFAULT_CUSTOM_CATEGORIES,
+                mode=selector.SelectSelectorMode.DROPDOWN,
+                custom_value=True,
+            )
+        )
+
         return self.async_show_form(
-            step_id=step_id,
+            step_id="add_holiday",
             data_schema=vol.Schema({
+                vol.Required(CONF_CATEGORY, default=DEFAULT_CUSTOM_CATEGORIES[0]): category_selector,
                 vol.Required(CONF_CUSTOM_NAME): selector.TextSelector(),
                 vol.Required(CONF_START_DATE): selector.DateSelector(),
                 vol.Optional(CONF_END_DATE): selector.DateSelector(),
             }),
-            description_placeholders={"tips": tips},
+            description_placeholders={
+                "tips": "🎉 **添加自定义假期**\n"
+                        "选择类别（可选：学生/工作/个人/家庭，也可输入新类别）\n"
+                        "填写名称和日期范围。留空结束日期表示单日事件。",
+            },
         )
 
     @override
     async def async_step_finish(self) -> ConfigFlowResult:
-        """完成：保存并重载（OptionsFlowWithReload 自动触发 reload）"""
+        """完成：保存并重载。"""
         return self.async_create_entry(title="", data={})
 
     # ---------- 辅助方法 ----------
@@ -285,9 +248,8 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
         """读取当前 entry.data 中的开关"""
         d = self.config_entry.data
         return {
-            CONF_ENABLED_LEGAL: bool(d[CONF_ENABLED_LEGAL]),
-            CONF_ENABLED_STUDENT: bool(d[CONF_ENABLED_STUDENT]),
-            CONF_ENABLED_CUSTOM: bool(d[CONF_ENABLED_CUSTOM]),
+            CONF_ENABLED_LEGAL: bool(d.get(CONF_ENABLED_LEGAL, True)),
+            CONF_ENABLED_CUSTOM: bool(d.get(CONF_ENABLED_CUSTOM, True)),
         }
 
     def _get_data_manager(self):
@@ -299,3 +261,15 @@ class SmartWorkdayOptionsFlow(OptionsFlowWithReload):
             return await self._get_data_manager().load_calendar_data()
         except Exception:
             return empty_calendar_data()
+
+    @staticmethod
+    def _get_categories_summary(data: Dict[str, Any]) -> str:
+        """汇总当前 custom 条目里的所有类别（按出现顺序）。"""
+        categories: list[str] = []
+        for item in data.get(KEY_CUSTOM, []):
+            cat = item.get("category")
+            if cat and cat not in categories:
+                categories.append(cat)
+        if not categories:
+            return "（暂无）"
+        return "、".join(categories)
