@@ -27,7 +27,7 @@ from .const import (
     VERSION,
     DOMAIN_DISPLAY_NAME,
     BINARY_SENSOR_MODEL,
-    BINARY_SENSOR_DIAG_MODEL,
+    BINARY_SENSOR_DIAG_DEVICE_MODEL,
     BINARY_SENSOR_IS_WORKDAY,
     BINARY_SENSOR_IS_HOLIDAY,
     BINARY_SENSOR_IS_CUSTOM_HOLIDAY,
@@ -152,7 +152,7 @@ async def async_setup_entry(
         identifiers={(DOMAIN, entry.entry_id + "_diag")},
         name=entry.data["name"] + " · 诊断",
         manufacturer=DOMAIN_DISPLAY_NAME,
-        model=BINARY_SENSOR_DIAG_MODEL,
+        model=BINARY_SENSOR_DIAG_DEVICE_MODEL,
         sw_version=VERSION,
     )
 
