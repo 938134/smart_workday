@@ -2,8 +2,9 @@
 
 v3.1.0：3 个传感器全部属于同一个设备（智能工作日）
 - 传感器区：工作日
-- 诊断区：法定假期 + 自定义假期
+- 诊断区：法定假期 + 自定义假期（EntityCategory.DIAGNOSTIC）
 - 分区仅在配置 UI 体现，设备层面统一
+- 诊断区实体带 EntityCategory.DIAGNOSTIC，HA 不会推送到 Lovelace 建议面板
 
 v3.0.0 破坏性重构：
 - 4 → 3 个 sensor：删除 is_student_holiday（学生假期实质是自定义假期的一个类别）
@@ -17,6 +18,7 @@ from typing import Any, Dict, List, Tuple
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -83,6 +85,7 @@ class SmartWorkdayBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEnt
         icon: str,
         unique_suffix: str,
         day_info_attr: str,
+        entity_category: EntityCategory | None = None,
     ):
         super().__init__(coordinator)
         self._day_info_attr = day_info_attr
@@ -90,6 +93,7 @@ class SmartWorkdayBinarySensor(RestoreEntity, CoordinatorEntity, BinarySensorEnt
         self._attr_name = entity_name
         self._attr_device_info = device_info
         self._attr_icon = icon
+        self._attr_entity_category = entity_category
 
     def _get_day_info(self) -> DayInfo | None:
         data = self.coordinator.data
@@ -149,14 +153,22 @@ async def async_setup_entry(
 
     # v3.1.0：按开关筛选实体
     sensors = []
-    all_defs = SENSOR_DEFS + DIAG_SENSOR_DEFS
-    for entity_name, icon, suffix, day_info_attr in all_defs:
+    # 传感器区（无 entity_category）
+    for entity_name, icon, suffix, day_info_attr in SENSOR_DEFS:
         flag_key = SENSOR_FLAG_MAP.get(entity_name)
-        if flag_key is not None:
-            enabled = bool(entry.data.get(flag_key, True))
-            if not enabled:
-                continue
+        if flag_key is not None and not bool(entry.data.get(flag_key, True)):
+            continue
         sensors.append(SmartWorkdayBinarySensor(coordinator, device_info, entity_name, icon, suffix, day_info_attr))
+
+    # 诊断区（EntityCategory.DIAGNOSTIC）
+    for entity_name, icon, suffix, day_info_attr in DIAG_SENSOR_DEFS:
+        flag_key = SENSOR_FLAG_MAP.get(entity_name)
+        if flag_key is not None and not bool(entry.data.get(flag_key, True)):
+            continue
+        sensors.append(SmartWorkdayBinarySensor(
+            coordinator, device_info, entity_name, icon, suffix, day_info_attr,
+            entity_category=EntityCategory.DIAGNOSTIC,
+        ))
 
     if sensors:
         async_add_entities(sensors)
