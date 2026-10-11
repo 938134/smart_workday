@@ -1,12 +1,15 @@
 """Constants for Smart Workday.
 
-版本号统一在此维护：所有 Python 模块通过 `from .const import VERSION` 引用。
-manifest.json 需手动同步（HA 无法从 const.py 动态读取）。
+版本号与集成名称：均从 manifest.json 读取（本文件为唯一权威来源，
+manifest.json 为运行时数据源）。CI 会校验二者一致（见 .github/workflows/release.yml）。
 
-v3.1.0：实体按 2 个设备分区，配置 UI 也按 2 段（传感器 / 诊断）
-- 传感器设备：假期日历 + 工作日（2 个开关）
-- 诊断设备：法定假期 + 自定义假期（2 个开关）
-- 法定假期/自定义假期归入诊断设备，不再是传感器
+v3.1.1：图标焕新（512x512 HACS 规范「2月30日」彩蛋）+ 修复 v3.1.0 遗漏导入 + 合并诊断设备
+- 单设备「智能工作日」，实体按 EntityCategory 分传感器/诊断 2 分区
+- 修复 BINARY_SENSOR_IS_WORKDAY 等常量误删导致的 ImportError
+
+v3.1.0：实体按 EntityCategory 分区，配置 UI 也按 2 段（传感器 / 诊断）
+- 传感器区：工作日 + 假期日历（2 个开关）
+- 诊断区：法定假期 + 自定义假期（2 个开关，EntityCategory.DIAGNOSTIC）
 
 v3.0.0 破坏性重构：
 - Store 结构从 3 分类（holidays/studentdays/customdays）合并为 2 分类（legal/custom）
@@ -16,12 +19,26 @@ v3.0.0 破坏性重构：
 - DayInfo 去掉 is_student_holiday，新增 active_custom: Dict[str, List[str]]
 """
 
+import json
+import logging
+from pathlib import Path
 from typing import Any, Final, Dict, List
 
+_LOGGER = logging.getLogger(__name__)
+
 # ============================================================
-# 版本号（唯一权威来源，其它 Python 模块必须从此引用）
+# manifest.json 读取（VERSION 与集成名称的唯一权威数据源）
 # ============================================================
-VERSION: Final = "3.1.0"
+_MANIFEST_PATH = Path(__file__).parent / "manifest.json"
+try:
+    with open(_MANIFEST_PATH, encoding="utf-8") as f:
+        _MANIFEST = json.load(f)
+    VERSION: Final = _MANIFEST.get("version", "0.0.0")
+    DEFAULT_NAME: Final = _MANIFEST.get("name", "Smart Workday")
+except (OSError, json.JSONDecodeError) as e:
+    _LOGGER.error("读取 manifest.json 失败: %s，使用默认值", e)
+    VERSION = "0.0.0"
+    DEFAULT_NAME = "Smart Workday"
 
 # 存储版本号（Store JSON 持久化，v3.0.0 起为 2）
 STORAGE_VERSION: Final = 2
@@ -48,10 +65,9 @@ LEGACY_KEYS_DETECTION: Final = (LEGACY_KEY_HOLIDAYS, LEGACY_KEY_STUDENTDAYS, LEG
 
 
 # ============================================================
-# 集成标识与默认名称（唯一权威来源，避免各处硬编码）
+# 集成标识（DEFAULT_NAME 与 VERSION 已从 manifest.json 读取）
 # ============================================================
 DOMAIN: Final = "smart_workday"
-DEFAULT_NAME: Final = "智能工作日"          # 集成显示名称默认值
 DOMAIN_DISPLAY_NAME: Final = "Smart Workday"  # 设备 manufacturer（英文）
 
 # 实体与设备元数据

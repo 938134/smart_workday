@@ -24,14 +24,33 @@ jobs:
           INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
           echo "INTEGRATION_DIR=$INTEGRATION_DIR" >> $GITHUB_ENV
 
-      - name: 从 manifest.json 读取版本号
-        id: version
+      - name: 校验 manifest.json 完整性
         run: |
-          VERSION=$(python3 -c "import json; print(json.load(open('custom_components/${{ env.PACKAGE_NAME }}/manifest.json'))['version'])")
+          INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
+          MANIFEST="$INTEGRATION_DIR/manifest.json"
+          VERSION=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['version'])")
+          NAME=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['name'])")
           TAG="v${VERSION}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "📌 manifest.json 版本: $VERSION → 标签: $TAG"
+          echo "📌 manifest.json: name=$NAME, version=$VERSION → 标签: $TAG"
+
+      - name: 校验版本号一致性（const.py ↔ manifest.json）
+        run: |
+          python3 -c "
+          import json, ast, sys
+          manifest = json.load(open('custom_components/${{ env.PACKAGE_NAME }}/manifest.json'))
+          version = manifest['version']
+          # 检查 const.py 是否从 manifest.json 读取 VERSION
+          src = open('custom_components/${{ env.PACKAGE_NAME }}/const.py').read()
+          if 'manifest.json' not in src:
+              print('❌ const.py 未检测到 manifest.json 读取逻辑')
+              sys.exit(1)
+          if '.get(\"version\"' not in src and '.get(\"name\"' not in src:
+              print('⚠️  const.py 未检测到 .get(\"version\") 或 .get(\"name\") 调用')
+              sys.exit(1)
+          print(f'✅ manifest.json version={version}, const.py 已从 manifest 读取')
+          "
 
       - name: 清理已有发布
         if: always()
