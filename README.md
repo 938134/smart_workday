@@ -1,22 +1,28 @@
 # Smart Workday 智能工作日
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
-[![Version](https://img.shields.io/badge/version-3.1.0-blue)]()
+[![Version](https://img.shields.io/badge/version-3.1.1-blue)]()
 [![HA](https://img.shields.io/badge/HA-2023.9%2B-orange)]()
 
 Home Assistant 自定义集成，智能判断当天是否为工作日，支持法定假期和带类别的自定义假期。
 
+<p align="center">
+  <img src="custom_components/smart_workday/brand/icon.png" alt="Smart Workday" width="180" />
+  <br/>
+  <sub>「2月30日」不存在的日期，正是这个集成的灵魂</sub>
+</p>
+
 ## 功能特点
 
-- **2 个设备** — 传感器设备（工作日 + 假期日历）+ 诊断设备（法定假期 + 自定义假期）
+- **1 个设备 · 2 个分区** — 智能工作日设备下按 `EntityCategory` 分为「传感器」和「诊断」两块（诊断实体自动隐藏于 Lovelace 默认视图）
 - **3 个 boolean 实体** — `is_workday` / `is_holiday` / `is_custom_holiday`，自动化直接用 ON/OFF
-- **4 个开关** — 传感器 2 个（工作日 / 假期日历）+ 诊断 2 个（法定假期 / 自定义假期）
+- **4 个开关** — 传感器 2 个（工作日 / 假期日历）+ 诊断 2 个（法定假期 / 自定义假期），独立控制实体可见性
 - **chinese-calendar 自动导入** — 自动导入当年国务院法定假期，每年 11 月库更新即可用
 - **调休自动识别** — 名称含「调休」自动归为上班日
 - **带类别的自定义假期** — 下拉选类别（学生 / 工作 / 个人 / 家庭）或自定义输入
 - **日历详细状态** — 显示进行中 / 空闲状态、当前事件、未来事件、数据统计
 - **Store 持久化** — 数据存储在 HA 标准 `.storage/` 目录，升级不丢失
-- **v1→v2 自动迁移** — 老 Store 结构自动无损迁移到新结构
+- **v1→v2 自动迁移** — 老 Store 结构自动无损迁移
 
 ## 安装
 
@@ -41,19 +47,23 @@ Home Assistant 自定义集成，智能判断当天是否为工作日，支持�
 
 ## 生成的实体
 
-### 传感器设备（2 个实体）
+全部实体归属于**同一个设备「智能工作日」**，按 `EntityCategory` 逻辑分区：
+
+### 传感器（`EntityCategory=None`，正常显示）
 
 | 实体 | 状态 | 说明 |
 |------|------|------|
 | `工作日` | ON/OFF | 是否工作日（含调休上班）；**承载所有详细信息属性** |
 | `假期日历` | ON/OFF | 日历实体，显示所有假期事件 |
 
-### 诊断设备（2 个实体）
+### 诊断（`EntityCategory.DIAGNOSTIC`，默认从 Lovelace 建议视图隐藏）
 
 | 实体 | 状态 | 说明 |
 |------|------|------|
 | `法定假期` | ON/OFF | 今天是否法定节假日 |
 | `自定义假期` | ON/OFF | 今天是否有自定义假期 |
+
+> 诊断区实体需要手动添加才会显示在仪表板，避免"新增实体时突然冒出两个"的困扰。
 
 ### 日历详细状态
 
@@ -201,9 +211,11 @@ custom_components/smart_workday/
 ├── const.py             # 所有常量（版本号唯一权威来源）
 ├── coordinator.py       # 数据协调器 + Store 持久化 + 日期分析（DayInfo）
 ├── config_flow.py       # ConfigFlow（1 步）+ OptionsFlow（init/toggle_switch/add_holiday/finish）
-├── binary_sensor.py     # 3 个 boolean 实体（分属传感器 + 诊断 2 个设备）
+├── binary_sensor.py     # 3 个 boolean 实体（1 个设备，含 EntityCategory.DIAGNOSTIC 标注）
 ├── calendar.py          # 1 个日历实体（支持 DELETE_EVENT + 详细状态属性）
 ├── manifest.json        # 集成元数据
+├── brand/               # HACS 品牌资源
+│   └── icon.png         # 512x512 品牌图标（HACS hDPI 规范）
 └── translations/        # 中英文翻译
 ```
 
@@ -214,15 +226,23 @@ custom_components/smart_workday/
 - **迁移**: v1 Store 结构自动无损迁移（首次启动时检测）
 - **依赖**: `chinese-calendar>=1.11.0`（法定假期数据源）
 
+### 品牌图标
+
+- 尺寸：512x512 PNG（符合 HACS hDPI 规范）
+- 主题：「2月30日」不存在的日期，日历造型 + 划掉的红色「30」
+- 纯 PIL 生成，无外部资源依赖
+
 ## 更新日志
 
+### v3.1.1
+- ✨ **图标焕新**：512x512 HACS hDPI 规范，「2月30日」彩蛋（红色日历 + 划掉的 30）
+- 🔧 修复 v3.1.0 遗漏的导入（`BINARY_SENSOR_IS_WORKDAY` 等常量误删）
+- 🔧 修复诊断设备独立标识问题：合并为单一设备「智能工作日」
+
 ### v3.1.0
-- ✨ **设备分区**：实体按 2 个设备分区（传感器 + 诊断）
-  - 传感器设备：假期日历 + 工作日
-  - 诊断设备：法定假期 + 自定义假期
+- ✨ **实体分区**：法定假期 / 自定义假期 标注 `EntityCategory.DIAGNOSTIC`，自动从 Lovelace 建议视图隐藏
 - ✨ **日历详细状态**：`attributes` 含进行中/空闲、当前事件、未来事件、数据统计
 - ✨ **4 个实体开关**：传感器 2 个 + 诊断 2 个，独立控制实体可见性
-- 🔧 常量清理：移除废弃的 diag 常量
 
 ### v3.0.0
 - ✨ **破坏性重构**：Store 结构从 3 分类（holidays/studentdays/customdays）合并为 2 分类（legal/custom）
