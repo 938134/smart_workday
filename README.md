@@ -1,7 +1,7 @@
 # Smart Workday 智能工作日
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
-[![Version](https://img.shields.io/badge/version-3.1.1-blue)]()
+[![Version](https://img.shields.io/badge/version-3.1.2-blue)]()
 [![HA](https://img.shields.io/badge/HA-2023.9%2B-orange)]()
 
 Home Assistant 自定义集成，智能判断当天是否为工作日，支持法定假期和带类别的自定义假期。
@@ -208,12 +208,12 @@ action:
 ```
 custom_components/smart_workday/
 ├── __init__.py          # 集成入口，Store 初始化 + v1→v2 迁移 + 法定假期自动导入
-├── const.py             # 所有常量（版本号唯一权威来源）
+├── const.py             # 所有常量（VERSION/DEFAULT_NAME 从 manifest.json 读取）
 ├── coordinator.py       # 数据协调器 + Store 持久化 + 日期分析（DayInfo）
 ├── config_flow.py       # ConfigFlow（1 步）+ OptionsFlow（init/toggle_switch/add_holiday/finish）
 ├── binary_sensor.py     # 3 个 boolean 实体（1 个设备，含 EntityCategory.DIAGNOSTIC 标注）
 ├── calendar.py          # 1 个日历实体（支持 DELETE_EVENT + 详细状态属性）
-├── manifest.json        # 集成元数据
+├── manifest.json        # 集成元数据（版本号 / 应用名称 / domain 的唯一权威来源）
 ├── brand/               # HACS 品牌资源
 │   └── icon.png         # 512x512 品牌图标（HACS hDPI 规范）
 └── translations/        # 中英文翻译
@@ -232,7 +232,36 @@ custom_components/smart_workday/
 - 主题：「2月30日」不存在的日期，日历造型 + 划掉的红色「30」
 - 纯 PIL 生成，无外部资源依赖
 
+### 版本管理
+
+**`manifest.json` 是唯一权威来源**（版本号 / 应用名称 / domain 三合一）。其他位置的版本号要么是运行时读取、要么是 CI 校验一致性，改版本号只改一个地方即可。
+
+| 位置 | 作用 | 更新方式 |
+|------|------|----------|
+| `manifest.json` | 版本号、应用名称、domain 的**唯一权威** | 手工修改（唯一入口） |
+| `const.py` | 运行时从 manifest 读 `VERSION` / `DEFAULT_NAME` | 自动（无需改） |
+| `hacs.json` | HACS 特有字段（`render_readme` / `country`） | 自动（HACS 从 manifest fallback 到 `name` / `minimum_ha_version`） |
+| `README.md` 顶部 badge | GitHub 首页展示 | 手工同步（CI 会校验，不一致则发布失败） |
+| `README.md` 「更新日志」 | 每次发版新增一节 `### v{version}` | 手工添加（CI 会自动提取注入 release 描述） |
+
+**发版流程**（3 步）：
+1. 改 `manifest.json` 的 `version`
+2. 同步 README 顶部 badge 的版本号
+3. 在 README「更新日志」顶部新增 `### v{version}` 章节，写本次更新内容
+4. push main 或手动触发 release workflow → 自动生成 tag / zip / 发布说明
+
+CI 会做两件事：
+- 校验 README badge 版本号 == manifest 版本号（不一致则 CI 失败并提示同步）
+- 从 README「更新日志」章节按版本号提取 changelog，注入 GitHub Release 的 body
+
 ## 更新日志
+
+### v3.1.2
+- ✨ **版本号统一管理**：`manifest.json` 作为版本号 / 应用名称 / domain 的唯一权威来源
+- ✨ **Release 自动带更新内容**：CI 从 README「更新日志」章节按当前版本自动提取 changelog，注入 Release 描述
+- ✨ **CI 版本一致性校验**：README badge 与 manifest 版本号不一致时 CI 失败并提示同步
+- 🔧 精简 `hacs.json`：删除冗余的 `name` / `homeassistant` 字段（HACS 官方支持从 manifest 自动 fallback）
+- 🔧 `release.yml` 全部从 manifest 派生元数据（tag / zip / 目录），去掉硬编码
 
 ### v3.1.1
 - ✨ **图标焕新**：512x512 HACS hDPI 规范，「2月30日」彩蛋（红色日历 + 划掉的 30）

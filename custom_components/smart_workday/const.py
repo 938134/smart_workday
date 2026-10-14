@@ -1,7 +1,12 @@
 """Constants for Smart Workday.
 
-版本号与集成名称：均从 manifest.json 读取（本文件为唯一权威来源，
-manifest.json 为运行时数据源）。CI 会校验二者一致（见 .github/workflows/release.yml）。
+版本号与集成名称：均从 manifest.json 读取（manifest.json 是唯一权威来源）。
+CI 会校验 README badge ↔ manifest.json 一致性（见 .github/workflows/release.yml）。
+
+v3.1.2：版本号统一管理（manifest.json 唯一权威）+ Release 自动带更新内容
+- manifest.json 是版本号 / 应用名称 / domain 的唯一权威来源
+- hacs.json 精简（HACS 从 manifest 自动 fallback）
+- release.yml 全部从 manifest 派生元数据，README changelog 自动注入 Release 描述
 
 v3.1.1：图标焕新（512x512 HACS 规范「2月30日」彩蛋）+ 修复 v3.1.0 遗漏导入 + 合并诊断设备
 - 单设备「智能工作日」，实体按 EntityCategory 分传感器/诊断 2 分区

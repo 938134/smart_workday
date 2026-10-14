@@ -1,9 +1,5 @@
 name: 构建和发布
 
-env:
-  PACKAGE_NAME: smart_workday
-  ZIP_NAME: smart_workday.zip
-
 on:
   workflow_dispatch:
   push:
@@ -19,107 +15,163 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 设置环境变量
+      # 1. 从 manifest.json 读取所有元数据（唯一权威来源）
+      - name: 读取 manifest.json（唯一权威来源）
+        id: meta
         run: |
-          INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
-          echo "INTEGRATION_DIR=$INTEGRATION_DIR" >> $GITHUB_ENV
+          python3 - <<'PYEOF'
+          import json, os
+          with open("custom_components/smart_workday/manifest.json", encoding="utf-8") as f:
+              m = json.load(f)
+          domain = m["domain"]
+          name = m["name"]
+          version = m["version"]
+          integration_dir = f"custom_components/{domain}"
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as f:
+              f.write(f"INTEGRATION_DIR={integration_dir}\n")
+              f.write(f"ZIP_NAME={domain}.zip\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"tag=v{version}\n")
+              f.write(f"domain={domain}\n")
+              f.write(f"name={name}\n")
+              f.write(f"version={version}\n")
+          print(f"📌 manifest.json: name={name}, version={version}, domain={domain}")
+          print(f"   → tag: v{version}  zip: {domain}.zip  dir: {integration_dir}")
+          PYEOF
 
-      - name: 校验 manifest.json 完整性
-        id: version
+      # 2. 校验 README badge 版本一致性（防止手工改版本号时漏改）
+      - name: 校验版本号一致性（README ↔ manifest）
         run: |
-          INTEGRATION_DIR="custom_components/${{ env.PACKAGE_NAME }}"
-          MANIFEST="$INTEGRATION_DIR/manifest.json"
-          VERSION=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['version'])")
-          NAME=$(python3 -c "import json; print(json.load(open('$MANIFEST'))['name'])")
-          TAG="v${VERSION}"
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "tag=$TAG" >> $GITHUB_OUTPUT
-          echo "📌 manifest.json: name=$NAME, version=$VERSION → 标签: $TAG"
-
-      - name: 校验版本号一致性（const.py ↔ manifest.json）
-        run: |
-          python3 -c "
-          import json, ast, sys
-          manifest = json.load(open('custom_components/${{ env.PACKAGE_NAME }}/manifest.json'))
-          version = manifest['version']
-          # 检查 const.py 是否从 manifest.json 读取 VERSION
-          src = open('custom_components/${{ env.PACKAGE_NAME }}/const.py').read()
-          if 'manifest.json' not in src:
-              print('❌ const.py 未检测到 manifest.json 读取逻辑')
+          python3 - <<'PYEOF'
+          import json, re, sys
+          manifest = json.load(open("custom_components/smart_workday/manifest.json", encoding="utf-8"))
+          mv = manifest["version"]
+          readme = open("README.md", encoding="utf-8").read()
+          m = re.search(r"img\.shields\.io/badge/version-(\d+\.\d+\.\d+)", readme)
+          if not m:
+              print("⚠️  README.md 中未找到 version badge，跳过校验")
+              sys.exit(0)
+          rv = m.group(1)
+          if rv != mv:
+              print(f"❌ 版本不一致：README={rv}, manifest={mv}")
+              print("请更新 README.md 的 version badge，使其与 manifest.json 一致")
               sys.exit(1)
-          if '.get(\"version\"' not in src and '.get(\"name\"' not in src:
-              print('⚠️  const.py 未检测到 .get(\"version\") 或 .get(\"name\") 调用')
-              sys.exit(1)
-          print(f'✅ manifest.json version={version}, const.py 已从 manifest 读取')
-          "
+          print(f"✅ 版本一致：{mv}")
+          PYEOF
 
+      # 3. 从 README.md 提取当前版本的 changelog
+      - name: 提取 changelog（README → 当前版本）
+        id: changelog
+        run: |
+          python3 - <<'PYEOF'
+          import json, re
+          manifest = json.load(open("custom_components/smart_workday/manifest.json", encoding="utf-8"))
+          version = manifest["version"]
+          readme = open("README.md", encoding="utf-8").read()
+          pattern = re.compile(
+              r"###\s+v?\s*" + re.escape(version) + r"\s*\n(.*?)(?=\n###\s+v?\s*\d+\.\d+\.\d+|\n##\s|\Z)",
+              re.DOTALL,
+          )
+          m = pattern.search(readme)
+          if m:
+              changelog = m.group(1).strip()
+              print(f"📋 提取到 v{version} 的 changelog（{len(changelog)} 字符）")
+          else:
+              changelog = f"- 本次更新日志未在 README.md 中找到（版本号 {version}）"
+              print(f"⚠️  README.md 中未找到 v{version} 的 changelog 章节，使用占位内容")
+          with open("/tmp/changelog.md", "w", encoding="utf-8") as f:
+              f.write(changelog)
+          print("--- changelog preview ---")
+          print(changelog)
+          PYEOF
+
+      # 4. 清理已有发布（同名 tag 自动清理，支持重复发布覆盖）
       - name: 清理已有发布
         if: always()
         continue-on-error: true
         run: |
-          if gh release view "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "发现同名发布，正在删除..."
-            gh release delete "${{ steps.version.outputs.tag }}" --cleanup-tag -y
-            echo "已删除同名发布"
+          if gh release view "${{ steps.meta.outputs.tag }}" >/dev/null 2>&1; then
+              echo "发现同名发布，正在删除..."
+              gh release delete "${{ steps.meta.outputs.tag }}" --cleanup-tag -y
+              echo "已删除同名发布"
           else
-            echo "没有找到同名发布，跳过删除"
+              echo "没有找到同名发布，跳过删除"
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # 5. 打包集成
       - name: 打包集成
         run: |
           if [ ! -d "$INTEGRATION_DIR" ]; then
-            echo "错误: 集成目录 '$INTEGRATION_DIR' 不存在!"
-            exit 1
+              echo "错误: 集成目录 '$INTEGRATION_DIR' 不存在!"
+              exit 1
           fi
-
-          zip -r "${{ env.ZIP_NAME }}" "$INTEGRATION_DIR" \
-            -x "*/__pycache__/*" "*/.git*" "*.pyc" "*.log" "*.tmp"
-
-          if [ ! -f "${{ env.ZIP_NAME }}" ]; then
-            echo "错误: ZIP文件创建失败!"
-            exit 1
+          zip -r "$ZIP_NAME" "$INTEGRATION_DIR" \
+              -x "*/__pycache__/*" "*/.git*" "*.pyc" "*.log" "*.tmp"
+          if [ ! -f "$ZIP_NAME" ]; then
+              echo "错误: ZIP 文件创建失败!"
+              exit 1
           fi
+          echo "打包完成: $ZIP_NAME"
+          ls -la "$ZIP_NAME"
 
-          echo "打包完成: ${{ env.ZIP_NAME }}"
-          ls -la "${{ env.ZIP_NAME }}"
-
+      # 6. 获取构建时间
       - name: 获取构建时间
         id: get_date
         run: |
           BUILD_DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
           echo "build_date=$BUILD_DATE" >> $GITHUB_OUTPUT
 
-      - name: 读取发布描述模板
+      # 7. 生成 release 描述（渲染 release_body.md 模板）
+      - name: 生成 release 描述
         run: |
-          sed -e "s|{{VERSION}}|${{ steps.version.outputs.tag }}|g" \
-              -e "s|{{BUILD_DATE}}|${{ steps.get_date.outputs.build_date }}|g" \
-              .github/release_body.md > /tmp/release_body.md
-          echo "📄 发布描述已生成"
+          python3 - <<'PYEOF'
+          import os
+          changelog = open("/tmp/changelog.md", encoding="utf-8").read()
+          template = open(".github/release_body.md", encoding="utf-8").read()
+          build_date = os.environ["BUILD_DATE"]
+          version = os.environ["MANIFEST_VERSION"]
+          content = (template
+              .replace("{{VERSION}}", f"v{version}")
+              .replace("{{BUILD_DATE}}", build_date)
+              .replace("{{CHANGELOG}}", changelog))
+          with open("/tmp/release_body.md", "w", encoding="utf-8") as f:
+              f.write(content)
+          print("📄 发布描述已生成到 /tmp/release_body.md")
+          print("--- release_body.md preview ---")
+          print(content)
+          PYEOF
+        env:
+          BUILD_DATE: ${{ steps.get_date.outputs.build_date }}
+          MANIFEST_VERSION: ${{ steps.meta.outputs.version }}
 
+      # 8. 创建发布
       - name: 创建发布
         uses: ncipollo/release-action@v1
         with:
           artifacts: "${{ env.ZIP_NAME }}"
           token: ${{ secrets.GITHUB_TOKEN }}
-          tag: "${{ steps.version.outputs.tag }}"
-          name: "Release ${{ steps.version.outputs.tag }}"
+          tag: "${{ steps.meta.outputs.tag }}"
+          name: "Release ${{ steps.meta.outputs.tag }}"
           bodyFile: /tmp/release_body.md
           makeLatest: true
           skipIfReleaseExists: true
 
+      # 9. 清理临时文件
       - name: 清理临时文件
         if: always()
         run: |
-          if [ -f "${{ env.ZIP_NAME }}" ]; then
-            rm -f "${{ env.ZIP_NAME }}"
-            echo "已清理临时文件"
+          if [ -f "$ZIP_NAME" ]; then
+              rm -f "$ZIP_NAME"
+              echo "已清理临时文件"
           fi
+          rm -f /tmp/changelog.md /tmp/release_body.md
 
+      # 10. 发布完成
       - name: 发布完成
         run: |
           echo "🎉 发布成功!"
-          echo "📦 包名称: ${{ env.PACKAGE_NAME }}"
-          echo "🏷️ 版本号: ${{ steps.version.outputs.tag }}"
-          echo "📁 文件: ${{ env.ZIP_NAME }}"
+          echo "📦 包名称: $ZIP_NAME"
+          echo "🏷️ 版本号: ${{ steps.meta.outputs.tag }}"
+          echo "📁 文件: $ZIP_NAME"
