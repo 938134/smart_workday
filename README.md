@@ -1,7 +1,7 @@
 # Smart Workday 智能工作日
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
-[![Version](https://img.shields.io/badge/version-3.1.2-blue)]()
+[![Version](https://img.shields.io/badge/version-3.1.3-blue)]()
 [![HA](https://img.shields.io/badge/HA-2023.9%2B-orange)]()
 
 Home Assistant 自定义集成，智能判断当天是否为工作日，支持法定假期和带类别的自定义假期。
